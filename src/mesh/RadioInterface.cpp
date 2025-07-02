@@ -665,7 +665,7 @@ size_t RadioInterface::beginSending(meshtastic_MeshPacket *p)
         p->hop_limit = HOP_RELIABLE;
     }
     radioBuffer.header.flags =
-        p->hop_limit | (p->want_ack ? PACKET_FLAGS_WANT_ACK_MASK : 0) | (p->via_mqtt ? PACKET_FLAGS_VIA_MQTT_MASK : 0);
+        p->hop_limit | (p->want_ack ? PACKET_FLAGS_WANT_ACK_MASK : 0);
     radioBuffer.header.flags |= (p->hop_start << PACKET_FLAGS_HOP_START_SHIFT) & PACKET_FLAGS_HOP_START_MASK;
 
     // if the sender nodenum is zero, that means uninitialized

@@ -654,7 +654,7 @@ void Router::handleReceived(meshtastic_MeshPacket *p, RxSource src)
             IS_ONE_OF(p->decoded.portnum, meshtastic_PortNum_ATAK_FORWARDER, meshtastic_PortNum_ATAK_PLUGIN,
                       meshtastic_PortNum_PAXCOUNTER_APP, meshtastic_PortNum_IP_TUNNEL_APP, meshtastic_PortNum_AUDIO_APP,
                       meshtastic_PortNum_PRIVATE_APP, meshtastic_PortNum_DETECTION_SENSOR_APP, meshtastic_PortNum_RANGE_TEST_APP,
-                      meshtastic_PortNum_REMOTE_HARDWARE_APP)) {
+                      meshtastic_PortNum_REMOTE_HARDWARE_APP, meshtastic_PortNum_POSITION_APP)) {
             LOG_DEBUG("Ignore packet on blacklisted portnum for CORE_PORTNUMS_ONLY");
             cancelSending(p->from, p->id);
             skipHandle = true;
