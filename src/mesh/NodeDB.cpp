@@ -579,6 +579,7 @@ void NodeDB::installDefaultConfig(bool preserveKey = false)
 #else
     config.lora.ignore_mqtt = false;
 #endif
+    // TODO: Once protobuf is regenerated, add: config.lora.agc_reset_interval = 480; // Default to 8 minutes (480 seconds)
     // Initialize admin_key_count to zero
     byte numAdminKeys = 0;
 

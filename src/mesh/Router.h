@@ -19,6 +19,9 @@ class Router : protected concurrency::OSThread, protected PacketHistory
     /// forwarded to the phone.
     PointerQueue<meshtastic_MeshPacket> fromRadioQueue;
 
+    /// Time for the next AGC reset
+    uint32_t nextAgcResetTime = 0;
+
   protected:
     RadioInterface *iface = NULL;
 

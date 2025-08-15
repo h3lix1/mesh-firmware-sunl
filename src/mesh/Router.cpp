@@ -71,6 +71,21 @@ int32_t Router::runOnce()
         perhapsHandleReceived(mp);
     }
 
+    // Check if AGC reset is needed
+    // TODO: Once protobuf is regenerated, use config.lora.agc_reset_interval instead of hardcoded value
+    const uint32_t AGC_RESET_INTERVAL = 480; // 8 minutes in seconds
+    if (AGC_RESET_INTERVAL > 0 && iface) {
+        if (nextAgcResetTime == 0) {
+            // Initialize next reset time
+            nextAgcResetTime = millis() + (AGC_RESET_INTERVAL * 1000);
+        } else if (millis() >= nextAgcResetTime) {
+            // Time to reset AGC
+            iface->resetAGC();
+            nextAgcResetTime = millis() + (AGC_RESET_INTERVAL * 1000);
+            LOG_DEBUG("AGC reset performed");
+        }
+    }
+
     // LOG_DEBUG("Sleep forever!");
     return INT32_MAX; // Wait a long time - until we get woken for the message queue
 }

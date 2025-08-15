@@ -120,6 +120,12 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
     virtual bool canSleep() override;
 
     /**
+     * Reset the radio's AGC (Automatic Gain Control) to maintain RX sensitivity
+     * According to RadioLib, calling startReceive() will reset the AGC
+     */
+    virtual void resetAGC() override;
+
+    /**
      * Start waiting to receive a message
      *
      * External functions can call this method to wake the device from sleep.

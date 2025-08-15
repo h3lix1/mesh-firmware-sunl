@@ -209,6 +209,12 @@ class RadioInterface
     /// Some boards (1st gen Pinetab Lora module) have broken IRQ wires, so we need to poll via i2c registers
     virtual bool isIRQPending() { return false; }
 
+    /**
+     * Reset the radio's AGC (Automatic Gain Control) to maintain RX sensitivity
+     * This helps prevent AGC saturation from strong nearby signals
+     */
+    virtual void resetAGC() { }
+
     // Whether we use the default frequency slot given our LoRa config (region and modem preset)
     static bool uses_default_frequency_slot;
 
