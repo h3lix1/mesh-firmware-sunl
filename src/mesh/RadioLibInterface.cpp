@@ -210,6 +210,20 @@ bool RadioLibInterface::canSleep()
     return res;
 }
 
+void RadioLibInterface::resetAGC()
+{
+    // Make sure we're not in the middle of receiving a packet
+    if (isReceiving || isActivelyReceiving()) {
+        LOG_DEBUG("Skipping AGC reset - radio is actively receiving");
+        return;
+    }
+    
+    // According to RadioLib documentation and MeshCore implementation,
+    // calling startReceive() will reset the AGC
+    LOG_DEBUG("Resetting AGC by restarting receive mode");
+    startReceive();
+}
+
 /** Allow other firmware components to ask whether we are currently sending a packet
 Initially implemented to protect T-Echo's capacitive touch button from spurious presses during tx
 */
