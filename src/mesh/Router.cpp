@@ -148,7 +148,7 @@ int32_t Router::runOnce()
 
     // Check if AGC reset is needed
     // TODO: Once protobuf is regenerated, use config.lora.agc_reset_interval instead of hardcoded value
-    const uint32_t AGC_RESET_INTERVAL = 480; // 8 minutes in seconds
+    const uint32_t AGC_RESET_INTERVAL = 60; // 1 minute
     if (AGC_RESET_INTERVAL > 0 && iface) {
         if (nextAgcResetTime == 0) {
             // Initialize next reset time
