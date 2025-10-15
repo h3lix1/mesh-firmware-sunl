@@ -169,7 +169,7 @@ class BluetoothPhoneAPI : public PhoneAPI, public concurrency::OSThread
         }
 
         // the run is triggered via NimbleBluetoothToRadioCallback and NimbleBluetoothFromRadioCallback
-        return INT32_MAX;
+        return RUN_SAME;
     }
 
     virtual void onConfigStart() override
@@ -332,6 +332,27 @@ class BluetoothPhoneAPI : public PhoneAPI, public concurrency::OSThread
 #else
         fromNumCharacteristic->notify();
 #endif
+    }
+
+    virtual void onConfigHandshakeStarted() override { setIntervalFromNow(kConfigHandshakeTimeoutMs); }
+
+    virtual void onConfigHandshakeTimeout() override
+    {
+        LOG_WARN("Config handshake stalled; restarting BLE connection");
+        if (!bleServer) {
+            return;
+        }
+        auto peers = bleServer->getPeerDevices();
+        if (peers.empty()) {
+            LOG_WARN("No BLE peers to disconnect during restart");
+            return;
+        }
+        for (auto connHandle : peers) {
+            int rc = bleServer->disconnect(connHandle);
+            if (rc != 0) {
+                LOG_WARN("Failed to disconnect BLE handle %u (rc=%d)", connHandle, rc);
+            }
+        }
     }
 
     /// Check the current underlying physical link to see if the client is currently connected
