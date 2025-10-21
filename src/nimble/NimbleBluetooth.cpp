@@ -312,11 +312,11 @@ class BluetoothPhoneAPI : public PhoneAPI, public concurrency::OSThread
     {
         PhoneAPI::onNowHasData(fromRadioNum);
 
-        int currentNotifyCount = notifyCount.fetch_add(1);
-
-        uint8_t cc = bleServer->getConnectedCount();
+        notifyCount.fetch_add(1);
 
 #ifdef DEBUG_NIMBLE_NOTIFY
+        int currentNotifyCount = notifyCount.load();
+        uint8_t cc = bleServer->getConnectedCount();
         // This logging slows things down when there are lots of packets going to the phone, like initial connection:
         LOG_DEBUG("BLE notify(%d) fromNum: %d connections: %d", currentNotifyCount, fromRadioNum, cc);
 #endif
