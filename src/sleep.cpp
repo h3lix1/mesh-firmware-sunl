@@ -13,6 +13,7 @@
 #include "detect/LoRaRadioType.h"
 #include "error.h"
 #include "main.h"
+#include "power.h" // For OCV_ARRAY used in quickBatteryCheck
 #include "sleep.h"
 #include "target_specific.h"
 
@@ -92,8 +93,13 @@ static bool quickUSBCheck()
 
 /**
  * Quick battery check for early boot - used to decide if we should go back to sleep
- * Returns approximate battery percentage (0-100), or -1 if unable to read
- * Also sets isCharging to true if voltage suggests USB/charging power
+ * Returns approximate battery percentage (0-100), or -1 if unable to read safely
+ * Also sets isCharging to true if USB power is detected via GPIO
+ *
+ * IMPORTANT: This runs before Power class init, so we use the same OCV_ARRAY
+ * from power.h and require ADC_MULTIPLIER to be defined by the variant.
+ * If ADC_MULTIPLIER is not defined, we return -1 to force normal boot
+ * (fail-safe: better to boot than get stuck in sleep loop).
  */
 static int quickBatteryCheck(bool &isCharging)
 {
@@ -106,13 +112,11 @@ static int quickBatteryCheck(bool &isCharging)
         return 100; // USB power present, report as "charged"
     }
 
-#if defined(BATTERY_PIN)
-    // OCV table for LiIon (matches power.h default)
-    const uint16_t OCV[11] = {4190, 4050, 3990, 3890, 3800, 3720, 3630, 3530, 3420, 3300, 3100};
-
-#ifndef ADC_MULTIPLIER
-#define ADC_MULTIPLIER 2.0
-#endif
+// Only do ADC-based check if we have both BATTERY_PIN and ADC_MULTIPLIER defined
+// This prevents wrong readings from hardcoded multiplier values
+#if defined(BATTERY_PIN) && defined(ADC_MULTIPLIER)
+    // Use the same OCV table as Power class (from power.h)
+    const uint16_t OCV[11] = {OCV_ARRAY};
 
     // Enable ADC if needed
 #ifdef ADC_CTRL
@@ -136,7 +140,7 @@ static int quickBatteryCheck(bool &isCharging)
     }
     raw = raw / 5;
 
-    // Convert to millivolts (simplified - not using calibration)
+    // Convert to millivolts using variant-defined ADC_MULTIPLIER
     // Note: ESP32 ADC is 12-bit (0-4095), reference ~3.3V
     float voltage = (raw / 4095.0f) * 3300.0f * ADC_MULTIPLIER;
 
@@ -149,11 +153,13 @@ static int quickBatteryCheck(bool &isCharging)
 #endif
 #endif
 
-    // If voltage is suspiciously low, assume no battery connected (USB-only power)
-    // This prevents false low-battery triggers on USB-powered nodes without batteries
-    const float noBatteryVolt = OCV[10] - 500; // ~2600mV - below this means no battery
-    if (voltage < noBatteryVolt) {
-        return -1; // No battery detected
+    // Sanity check: if voltage is outside reasonable LiPo range, don't trust it
+    // This prevents deadlock from bad ADC readings or misconfigured multiplier
+    // Note: We do NOT try to detect "no battery" by low voltage - modern charger ICs
+    // keep capacitors at nominal voltage even without battery (per phaseloop's feedback)
+    if (voltage < 2500 || voltage > 4500) {
+        LOG_WARN("Low battery recovery: ADC reading %dmV outside LiPo range (2.5-4.5V), forcing boot", (int)voltage);
+        return -1; // Force normal boot - reading is suspect
     }
 
     // Convert voltage to percentage using OCV table
@@ -169,9 +175,10 @@ static int quickBatteryCheck(bool &isCharging)
     }
     return 0; // Below minimum voltage
 #else
-    // No battery pin - can't do early check
+    // No BATTERY_PIN or ADC_MULTIPLIER - can't safely do early check
+    // Return -1 to force normal boot (fail-safe)
     return -1;
-#endif // BATTERY_PIN
+#endif // BATTERY_PIN && ADC_MULTIPLIER
 }
 
 /**
@@ -217,10 +224,9 @@ static bool shouldContinueLowBatterySleep()
 
     // Still low battery - should go back to sleep
     if (hasUSB) {
-        LOG_INFO("Low battery recovery: USB connected but battery still at %d%% (<=%d%%), returning to sleep", batteryPct,
-                 LOW_BATT_USB_THRESHOLD);
+        LOG_INFO("Low battery recovery: USB but battery at %d%% (<=%d%%), sleeping", batteryPct, LOW_BATT_USB_THRESHOLD);
     } else {
-        LOG_INFO("Low battery recovery: Battery at %d%% (<%d%%), returning to sleep", batteryPct, LOW_BATT_EXIT_THRESHOLD);
+        LOG_INFO("Low battery recovery: Battery at %d%% (<%d%%), sleeping", batteryPct, LOW_BATT_EXIT_THRESHOLD);
     }
     return true;
 }
