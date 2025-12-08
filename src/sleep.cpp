@@ -99,8 +99,8 @@ void setCPUFast(bool on)
     }
 
 // The Heltec LORA32 V1 runs at 26 MHz base frequency and doesn't react well to switching to 80 MHz...
-// ESP32-C3 and ESP32-S3 can safely use lower frequencies for power savings
-#if !defined(ARDUINO_HELTEC_WIFI_LORA_32) && !defined(CONFIG_IDF_TARGET_ESP32C3) && !defined(CONFIG_IDF_TARGET_ESP32S3)
+// ESP32-C3 has different frequency architecture and is excluded
+#if !defined(ARDUINO_HELTEC_WIFI_LORA_32) && !defined(CONFIG_IDF_TARGET_ESP32C3)
     setCpuFrequencyMhz(on ? 240 : 80);
 #endif
 

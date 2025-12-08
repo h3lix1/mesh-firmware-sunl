@@ -162,7 +162,11 @@ void esp32Setup()
     WiFiOTA::initialize();
 #endif
 
-    // enableModemSleep();
+    // Enable ESP-IDF power management (DFS + automatic light sleep) for ESP32-S3
+    // This allows automatic CPU frequency scaling (20-240MHz) and light sleep between tasks
+#if CONFIG_IDF_TARGET_ESP32S3
+    enableModemSleep();
+#endif
 
 // Since we are turning on watchdogs rather late in the release schedule, we really don't want to catch any
 // false positives.  The wait-to-sleep timeout for shutting down radios is 30 secs, so pick 45 for now.
