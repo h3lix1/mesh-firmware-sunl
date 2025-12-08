@@ -89,9 +89,8 @@ void setCPUFast(bool on)
          *   This mostly impacts WiFi AP mode but we'll bump the frequency for
          *     all WiFi use cases.
          * (Added: Dec 23, 2021 by Jm Casler)
-         * Note: ESP32-C3 and ESP32-S3 don't have this issue - they can run WiFi at lower frequencies
          */
-#if !defined(CONFIG_IDF_TARGET_ESP32C3) && !defined(CONFIG_IDF_TARGET_ESP32S3)
+#ifndef CONFIG_IDF_TARGET_ESP32C3
         LOG_DEBUG("Set CPU to 240MHz because WiFi is in use");
         setCpuFrequencyMhz(240);
 #endif
@@ -99,9 +98,13 @@ void setCPUFast(bool on)
     }
 
 // The Heltec LORA32 V1 runs at 26 MHz base frequency and doesn't react well to switching to 80 MHz...
+<<<<<<< HEAD
 // ESP32-C3 has different frequency architecture and is excluded
 // ESP32-S3 uses DFS (Dynamic Frequency Scaling) via enableModemSleep() instead of manual frequency setting
 #if !defined(ARDUINO_HELTEC_WIFI_LORA_32) && !defined(CONFIG_IDF_TARGET_ESP32C3) && !defined(CONFIG_IDF_TARGET_ESP32S3)
+=======
+#if !defined(ARDUINO_HELTEC_WIFI_LORA_32) && !defined(CONFIG_IDF_TARGET_ESP32C3)
+>>>>>>> parent of c007293cf (Merge branch 'v4_light_sleep' into home_firmware)
     setCpuFrequencyMhz(on ? 240 : 80);
 #endif
 
@@ -532,13 +535,7 @@ void enableModemSleep()
     esp32_config.max_freq_mhz = CONFIG_ESP32_DEFAULT_CPU_FREQ_MHZ;
 #endif
     esp32_config.min_freq_mhz = 20; // 10Mhz is minimum recommended
-    // Enable automatic light sleep for newer ESP32 variants (S3, C3, C6, S2) which don't have
-    // the WiFi stability issues at lower frequencies that the original ESP32 had
-#if CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32S2
-    esp32_config.light_sleep_enable = true;
-#else
     esp32_config.light_sleep_enable = false;
-#endif
     int rv = esp_pm_configure(&esp32_config);
     LOG_DEBUG("Sleep request result %x", rv);
 }
