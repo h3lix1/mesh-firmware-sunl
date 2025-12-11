@@ -15,8 +15,8 @@ The save / load mechanism is a shared NicheGraphics feature.
 #include "configuration.h"
 
 #include "./InkHUD.h"
-#include "graphics/niche/FlashData.h"
 #include "graphics/niche/InkHUD/MessageStore.h"
+#include "graphics/niche/Utils/FlashData.h"
 
 namespace NicheGraphics::InkHUD
 {
@@ -99,7 +99,7 @@ class Persistence
         // Rotation of the display
         // Multiples of 90 degrees clockwise
         // Most commonly: rotation is 0 when flex connector is oriented below display
-        uint8_t rotation = 1;
+        uint8_t rotation = 0;
 
         // How long do we consider another node to be "active"?
         // Used when applets want to filter for "active nodes" only

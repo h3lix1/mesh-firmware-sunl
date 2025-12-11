@@ -3,12 +3,17 @@
 #include "architecture.h"
 
 #if !(MESHTASTIC_EXCLUDE_PKI)
+#include "NodeDB.h"
 #include "aes-ccm.h"
 #include "meshUtils.h"
 #include <Crypto.h>
 #include <Curve25519.h>
+#include <RNG.h>
 #include <SHA256.h>
 #if !(MESHTASTIC_EXCLUDE_PKI_KEYGEN)
+#if !defined(ARCH_STM32WL)
+#define CryptRNG RNG
+#endif
 
 /**
  * Create a public/private key pair with Curve25519.
@@ -18,6 +23,14 @@
  */
 void CryptoEngine::generateKeyPair(uint8_t *pubKey, uint8_t *privKey)
 {
+    // Mix in any randomness we can, to make key generation stronger.
+    CryptRNG.begin(optstr(APP_VERSION));
+    if (myNodeInfo.device_id.size == 16) {
+        CryptRNG.stir(myNodeInfo.device_id.bytes, myNodeInfo.device_id.size);
+    }
+    auto noise = random();
+    CryptRNG.stir((uint8_t *)&noise, sizeof(noise));
+
     LOG_DEBUG("Generate Curve25519 keypair");
     Curve25519::dh1(public_key, private_key);
     memcpy(pubKey, public_key, sizeof(public_key));
@@ -79,10 +92,10 @@ bool CryptoEngine::encryptCurve25519(uint32_t toNode, uint32_t fromNode, meshtas
         LOG_DEBUG("Node %d or their public_key not found", toNode);
         return false;
     }
-    if (!crypto->setDHPublicKey(remotePublic.bytes)) {
+    if (!setDHPublicKey(remotePublic.bytes)) {
         return false;
     }
-    crypto->hash(shared_key, 32);
+    hash(shared_key, 32);
     initNonce(fromNode, packetNum, extraNonceTmp);
 
     // Calculate the shared secret with the destination node and encrypt
@@ -121,10 +134,10 @@ bool CryptoEngine::decryptCurve25519(uint32_t fromNode, meshtastic_UserLite_publ
     }
 
     // Calculate the shared secret with the sending node and decrypt
-    if (!crypto->setDHPublicKey(remotePublic.bytes)) {
+    if (!setDHPublicKey(remotePublic.bytes)) {
         return false;
     }
-    crypto->hash(shared_key, 32);
+    hash(shared_key, 32);
 
     initNonce(fromNode, packetNum, extraNonce);
     printBytes("Attempt decrypt with nonce: ", nonce, 13);

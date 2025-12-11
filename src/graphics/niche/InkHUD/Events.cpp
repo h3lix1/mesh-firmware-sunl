@@ -3,11 +3,14 @@
 #include "./Events.h"
 
 #include "RTC.h"
+#include "buzz.h"
+#include "modules/ExternalNotificationModule.h"
 #include "modules/TextMessageModule.h"
 #include "sleep.h"
 
 #include "./Applet.h"
 #include "./SystemApplet.h"
+#include "graphics/niche/Utils/FlashData.h"
 
 using namespace NicheGraphics;
 
@@ -25,6 +28,9 @@ void InkHUD::Events::begin()
     deepSleepObserver.observe(&notifyDeepSleep);
     rebootObserver.observe(&notifyReboot);
     textMessageObserver.observe(textMessageModule);
+#if !MESHTASTIC_EXCLUDE_ADMIN
+    adminMessageObserver.observe((Observable<AdminModule_ObserverData *> *)adminModule);
+#endif
 #ifdef ARCH_ESP32
     lightSleepObserver.observe(&notifyLightSleep);
 #endif
@@ -32,6 +38,13 @@ void InkHUD::Events::begin()
 
 void InkHUD::Events::onButtonShort()
 {
+    // Audio feedback (via buzzer)
+    // Short tone
+    playChirp();
+    // Cancel any beeping, buzzing, blinking
+    // Some button handling suppressed if we are dismissing an external notification (see below)
+    bool dismissedExt = dismissExternalNotification();
+
     // Check which system applet wants to handle the button press (if any)
     SystemApplet *consumer = nullptr;
     for (SystemApplet *sa : inkhud->systemApplets) {
@@ -44,12 +57,16 @@ void InkHUD::Events::onButtonShort()
     // If no system applet is handling input, default behavior instead is to cycle applets
     if (consumer)
         consumer->onButtonShortPress();
-    else
+    else if (!dismissedExt) // Don't change applet if this button press silenced the external notification module
         inkhud->nextApplet();
 }
 
 void InkHUD::Events::onButtonLong()
 {
+    // Audio feedback (via buzzer)
+    // Slightly longer than playChirp
+    playBoop();
+
     // Check which system applet wants to handle the button press (if any)
     SystemApplet *consumer = nullptr;
     for (SystemApplet *sa : inkhud->systemApplets) {
@@ -70,6 +87,9 @@ void InkHUD::Events::onButtonLong()
 // Returns 0 to signal that we agree to sleep now
 int InkHUD::Events::beforeDeepSleep(void *unused)
 {
+    // If a previous display update is in progress, wait for it to complete.
+    inkhud->awaitUpdate();
+
     // Notify all applets that we're shutting down
     for (Applet *ua : inkhud->userApplets) {
         ua->onDeactivate();
@@ -87,9 +107,16 @@ int InkHUD::Events::beforeDeepSleep(void *unused)
     inkhud->persistence->saveSettings();
     inkhud->persistence->saveLatestMessage();
 
-    // LogoApplet::onShutdown will have requested an update, to draw the shutdown screen
-    // Draw that now, and wait here until the update is complete
+    // LogoApplet::onShutdown attempted to heal the display by drawing a "shutting down" screen twice,
+    // then prepared a final powered-off screen for us, which shows device shortname.
+    // We're updating to show that one now.
+
     inkhud->forceUpdate(Drivers::EInk::UpdateTypes::FULL, false);
+    delay(1000); // Cooldown, before potentially yanking display power
+
+    // InkHUD shutdown complete
+    // Firmware shutdown continues for several seconds more; flash write still pending
+    playShutdownMelody();
 
     return 0; // We agree: deep sleep now
 }
@@ -106,16 +133,21 @@ int InkHUD::Events::beforeReboot(void *unused)
         a->onDeactivate();
         a->onShutdown();
     }
-    for (Applet *sa : inkhud->systemApplets) {
+    for (SystemApplet *sa : inkhud->systemApplets) {
         // Note: no onDeactivate. System applets are always active.
-        sa->onShutdown();
+        sa->onReboot();
     }
 
-    inkhud->persistence->saveSettings();
-    inkhud->persistence->saveLatestMessage();
+    // Save settings to flash, or erase if factory reset in progress
+    if (!eraseOnReboot) {
+        inkhud->persistence->saveSettings();
+        inkhud->persistence->saveLatestMessage();
+    } else {
+        NicheGraphics::clearFlashData();
+    }
 
     // Note: no forceUpdate call here
-    // Because OSThread will not be given another chance to run before reboot, this means that no display update will occur
+    // We don't have any final screen to draw, although LogoApplet::onReboot did already display a "rebooting" screen
 
     return 0; // No special status to report. Ignored anyway by this Observable
 }
@@ -128,11 +160,6 @@ int InkHUD::Events::onReceiveTextMessage(const meshtastic_MeshPacket *packet)
 {
     // Short circuit: don't store outgoing messages
     if (getFrom(packet) == nodeDB->getNodeNum())
-        return 0;
-
-    // Short circuit: don't store "emoji reactions"
-    // Possibly some implementation of this in future?
-    if (packet->decoded.emoji)
         return 0;
 
     // Determine whether the message is broadcast or a DM
@@ -165,6 +192,24 @@ int InkHUD::Events::onReceiveTextMessage(const meshtastic_MeshPacket *packet)
     return 0; // Tell caller to continue notifying other observers. (No reason to abort this event)
 }
 
+int InkHUD::Events::onAdminMessage(AdminModule_ObserverData *data)
+{
+    switch (data->request->which_payload_variant) {
+    // Factory reset
+    // Two possible messages. One preserves BLE bonds, other wipes. Both should clear InkHUD data.
+    case meshtastic_AdminMessage_factory_reset_device_tag:
+    case meshtastic_AdminMessage_factory_reset_config_tag:
+        eraseOnReboot = true;
+        *data->result = AdminMessageHandleResult::HANDLED;
+        break;
+
+    default:
+        break;
+    }
+
+    return 0; // Tell caller to continue notifying other observers. (No reason to abort this event)
+}
+
 #ifdef ARCH_ESP32
 // Callback for lightSleepObserver
 // Make sure the display is not partway through an update when we begin light sleep
@@ -175,5 +220,25 @@ int InkHUD::Events::beforeLightSleep(void *unused)
     return 0; // No special status to report. Ignored anyway by this Observable
 }
 #endif
+
+// Silence all ongoing beeping, blinking, buzzing, coming from the external notification module
+// Returns true if an external notification was active, and we dismissed it
+// Button handling changes depending on our result
+bool InkHUD::Events::dismissExternalNotification()
+{
+    // Abort if not using external notifications
+    if (!moduleConfig.external_notification.enabled)
+        return false;
+
+    // Abort if nothing to dismiss
+    if (!externalNotificationModule->nagging())
+        return false;
+
+    // Stop the beep buzz blink
+    externalNotificationModule->stopNow();
+
+    // Inform that we did indeed dismiss an external notification
+    return true;
+}
 
 #endif
