@@ -7,6 +7,7 @@
 #include "main.h"
 #include "mesh/Channels.h"
 #include "mesh/Router.h"
+#include "meshUtils.h"
 #include "mesh/generated/meshtastic/mqtt.pb.h"
 #include "mesh/generated/meshtastic/telemetry.pb.h"
 #include "modules/RoutingModule.h"

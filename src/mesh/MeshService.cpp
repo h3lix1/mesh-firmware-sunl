@@ -180,7 +180,9 @@ NodeNum MeshService::getNodenumFromRequestId(uint32_t request_id)
 void MeshService::handleToRadio(meshtastic_MeshPacket &p)
 {
 #if defined(ARCH_PORTDUINO)
-    if (SimRadio::instance && p.decoded.portnum == meshtastic_PortNum_SIMULATOR_APP) {
+    // Only unwrap SIMULATOR_APP packets when running the Android-app simulator transport.
+    // In native '--sim' mode we want to behave like a normal Meshtastic device (no SIMULATOR_APP wrapping).
+    if (SimRadio::instance && !portduino_config.force_simradio && p.decoded.portnum == meshtastic_PortNum_SIMULATOR_APP) {
         // Simulates device received a packet via the LoRa chip
         SimRadio::instance->unpackAndReceive(p);
         return;
