@@ -1,5 +1,6 @@
 #include "SimRadio.h"
 #include "MeshService.h"
+#include "PortduinoGlue.h"
 #include "Router.h"
 
 SimRadio::SimRadio() : NotifiedWorkerThread("SimRadio")
@@ -209,19 +210,24 @@ void SimRadio::startSend(meshtastic_MeshPacket *txp)
     isReceiving = false;
     size_t numbytes = beginSending(txp);
     meshtastic_MeshPacket *p = packetPool.allocCopy(*txp);
-    perhapsDecode(p);
-    meshtastic_Compressed c = meshtastic_Compressed_init_default;
-    c.portnum = p->decoded.portnum;
-    // LOG_DEBUG("Send back to simulator with portNum %d", p->decoded.portnum);
-    if (p->decoded.payload.size <= sizeof(c.data.bytes)) {
-        memcpy(&c.data.bytes, p->decoded.payload.bytes, p->decoded.payload.size);
-        c.data.size = p->decoded.payload.size;
-    } else {
-        LOG_WARN("Payload size larger than compressed message allows! Send empty payload");
+
+    // When running with the CLI flag --sim (force_simradio), behave like a normal Meshtastic device:
+    // send regular packets/portnums to the client instead of wrapping into SIMULATOR_APP.
+    if (!portduino_config.force_simradio) {
+        perhapsDecode(p);
+        meshtastic_Compressed c = meshtastic_Compressed_init_default;
+        c.portnum = p->decoded.portnum;
+        // LOG_DEBUG("Send back to simulator with portNum %d", p->decoded.portnum);
+        if (p->decoded.payload.size <= sizeof(c.data.bytes)) {
+            memcpy(&c.data.bytes, p->decoded.payload.bytes, p->decoded.payload.size);
+            c.data.size = p->decoded.payload.size;
+        } else {
+            LOG_WARN("Payload size larger than compressed message allows! Send empty payload");
+        }
+        p->decoded.payload.size =
+            pb_encode_to_bytes(p->decoded.payload.bytes, sizeof(p->decoded.payload.bytes), &meshtastic_Compressed_msg, &c);
+        p->decoded.portnum = meshtastic_PortNum_SIMULATOR_APP;
     }
-    p->decoded.payload.size =
-        pb_encode_to_bytes(p->decoded.payload.bytes, sizeof(p->decoded.payload.bytes), &meshtastic_Compressed_msg, &c);
-    p->decoded.portnum = meshtastic_PortNum_SIMULATOR_APP;
 
     service->sendQueueStatusToPhone(router->getQueueStatus(), 0, p->id);
     service->sendToPhone(p); // Sending back to simulator
