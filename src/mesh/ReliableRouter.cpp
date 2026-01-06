@@ -33,9 +33,14 @@ ErrorCode ReliableRouter::send(meshtastic_MeshPacket *p)
     /* If we have pending retransmissions, add the airtime of this packet to it, because during that time we cannot receive an
        (implicit) ACK. Otherwise, we might retransmit too early.
      */
+    uint32_t airtimeMsec = iface->getPacketTime(p);
     for (auto i = pending.begin(); i != pending.end(); i++) {
         if (i->first.id != p->id) {
-            i->second.nextTxMsec += iface->getPacketTime(p);
+            i->second.nextTxMsec += airtimeMsec;
+            if (i->second.nakAfterMsec != 0) {
+                // Preserve relative NAK deadline when we extend retry timers.
+                i->second.nakAfterMsec += airtimeMsec;
+            }
         }
     }
 
@@ -76,8 +81,13 @@ bool ReliableRouter::shouldFilterReceived(const meshtastic_MeshPacket *p)
        because while receiving this packet, we could not have received an (implicit) ACK for it.
        If we don't add this, we will likely retransmit too early.
     */
+    uint32_t airtimeMsec = iface->getPacketTime(p, true);
     for (auto i = pending.begin(); i != pending.end(); i++) {
-        i->second.nextTxMsec += iface->getPacketTime(p, true);
+        i->second.nextTxMsec += airtimeMsec;
+        if (i->second.nakAfterMsec != 0) {
+            // Preserve relative NAK deadline when we extend retry timers.
+            i->second.nakAfterMsec += airtimeMsec;
+        }
     }
 
     return isBroadcast(p->to) ? FloodingRouter::shouldFilterReceived(p) : NextHopRouter::shouldFilterReceived(p);

@@ -253,6 +253,11 @@ PendingPacket *NextHopRouter::startRetransmission(meshtastic_MeshPacket *p, uint
 
     stopRetransmission(getFrom(p), p->id);
 
+    if (isFromUs(p) && isBroadcast(p->to) && p->want_ack) {
+        // Keep retry cadence unchanged, but delay NAK until late rebroadcast window has elapsed.
+        rec.nakAfterMsec = millis() + iface->getImplicitAckTimeoutMsec(p);
+    }
+
     setNextTx(&rec);
     pending[id] = rec;
 
@@ -279,13 +284,21 @@ int32_t NextHopRouter::doRetransmissions()
         if (p.nextTxMsec <= now) {
             if (p.numRetransmissions == 0) {
                 if (isFromUs(p.packet)) {
-                    LOG_DEBUG("Reliable send failed, returning a nak for fr=0x%x,to=0x%x,id=0x%x", p.packet->from, p.packet->to,
-                              p.packet->id);
-                    sendAckNak(meshtastic_Routing_Error_MAX_RETRANSMIT, getFrom(p.packet), p.packet->id, p.packet->channel);
+                    if (p.nakAfterMsec != 0 && now < p.nakAfterMsec) {
+                        // Defer NAK without adding extra retries.
+                        p.nextTxMsec = p.nakAfterMsec;
+                    } else {
+                        LOG_DEBUG("Reliable send failed, returning a nak for fr=0x%x,to=0x%x,id=0x%x", p.packet->from,
+                                  p.packet->to, p.packet->id);
+                        sendAckNak(meshtastic_Routing_Error_MAX_RETRANSMIT, getFrom(p.packet), p.packet->id, p.packet->channel);
+                        // Note: we don't stop retransmission here, instead the Nak packet gets processed in sniffReceived
+                        stopRetransmission(it->first);
+                        stillValid = false; // just deleted it
+                    }
+                } else {
+                    stopRetransmission(it->first);
+                    stillValid = false; // just deleted it
                 }
-                // Note: we don't stop retransmission here, instead the Nak packet gets processed in sniffReceived
-                stopRetransmission(it->first);
-                stillValid = false; // just deleted it
             } else {
                 LOG_DEBUG("Sending retransmission fr=0x%x,to=0x%x,id=0x%x, tries left=%d", p.packet->from, p.packet->to,
                           p.packet->id, p.numRetransmissions);

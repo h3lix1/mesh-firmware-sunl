@@ -170,6 +170,9 @@ class RadioInterface
     /** The delay to use for retransmitting dropped packets */
     uint32_t getRetransmissionMsec(const meshtastic_MeshPacket *p);
 
+    /** The timeout to wait for an implicit ACK (rebroadcast), used for NAK deadlines only */
+    uint32_t getImplicitAckTimeoutMsec(const meshtastic_MeshPacket *p);
+
     /** The delay to use when we want to send something */
     uint32_t getTxDelayMsec();
 

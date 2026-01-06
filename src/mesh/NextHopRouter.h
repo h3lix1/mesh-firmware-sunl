@@ -35,6 +35,9 @@ struct PendingPacket {
     /** The next time we should try to retransmit this packet */
     uint32_t nextTxMsec = 0;
 
+    /** Earliest time to emit MAX_RETRANSMIT for our broadcast implicit-ACKs (late window) */
+    uint32_t nakAfterMsec = 0;
+
     /** Starts at NUM_RETRANSMISSIONS -1 and counts down.  Once zero it will be removed from the list */
     uint8_t numRetransmissions = 0;
 

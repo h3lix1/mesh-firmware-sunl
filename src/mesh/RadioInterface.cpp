@@ -250,12 +250,19 @@ uint32_t RadioInterface::getRetransmissionMsec(const meshtastic_MeshPacket *p)
     uint32_t packetAirtime = getPacketTime(numbytes + sizeof(PacketHeader));
     // Make sure enough time has elapsed for this packet to be sent and an ACK is received.
     // LOG_DEBUG("Waiting for flooding message with airtime %d and slotTime is %d", packetAirtime, slotTimeMsec);
-    // Account for worst-case ROUTER_LATE delay: (2 * CWmax + pow_of_2(CWmax)) * slotTimeMsec
-    // ROUTER_LATE uses SNR-based CWsize independent of channel util, so we must assume CWmax for both terms
-    // to ensure timeout is always longer than the maximum possible ROUTER_LATE rebroadcast delay.
-    // This prevents MAX_RETRANSMIT errors when ROUTER_LATE nodes successfully rebroadcast but with delay.
-    return 2 * packetAirtime + (2 * pow_of_2(CWmax) + 2 * CWmax) * slotTimeMsec +
+    float channelUtil = airTime->channelUtilizationPercent();
+    uint8_t CWsize = map(channelUtil, 0, 100, CWmin, CWmax);
+    // Assuming we pick max. of CWsize and there will be a client with SNR at half the range
+    return 2 * packetAirtime + (pow_of_2(CWsize) + 2 * CWmax + pow_of_2(int((CWmax + CWmin) / 2))) * slotTimeMsec +
            PROCESSING_TIME_MSEC;
+}
+
+uint32_t RadioInterface::getImplicitAckTimeoutMsec(const meshtastic_MeshPacket *p)
+{
+    size_t numbytes = pb_encode_to_bytes(bytes, sizeof(bytes), &meshtastic_Data_msg, &p->decoded);
+    uint32_t packetAirtime = getPacketTime(numbytes + sizeof(PacketHeader));
+    // Use worst-case late rebroadcast window so implicit ACKs aren't declared failed too early.
+    return 2 * packetAirtime + (2 * pow_of_2(CWmax) + 2 * CWmax) * slotTimeMsec + PROCESSING_TIME_MSEC;
 }
 
 /** The delay to use when we want to send something */
