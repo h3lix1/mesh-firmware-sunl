@@ -533,7 +533,13 @@ void enableModemSleep()
 #else
     esp32_config.max_freq_mhz = CONFIG_ESP32_DEFAULT_CPU_FREQ_MHZ;
 #endif
-    esp32_config.min_freq_mhz = 20; // 10Mhz is minimum recommended
+    // Set minimum CPU frequency for DFS. WiFi requires higher minimum (40MHz) for stability,
+    // otherwise we can go as low as 20MHz for maximum power savings.
+#if HAS_WIFI
+    esp32_config.min_freq_mhz = isWifiAvailable() ? 40 : 20;
+#else
+    esp32_config.min_freq_mhz = 20; // 10MHz is minimum recommended, 20MHz for safety margin
+#endif
 
     // Enable automatic light sleep when HAS_LIGHT_SLEEP is defined for the variant.
     // This allows the CPU to enter light sleep between tasks, significantly reducing
@@ -541,7 +547,7 @@ void enableModemSleep()
     // Note: This requires proper handling of peripherals and is tested on specific boards.
 #ifdef HAS_LIGHT_SLEEP
     esp32_config.light_sleep_enable = true;
-    LOG_INFO("Light sleep enabled via DFS power management");
+    LOG_INFO("Light sleep enabled via DFS power management (min_freq=%dMHz)", esp32_config.min_freq_mhz);
 #else
     esp32_config.light_sleep_enable = false;
 #endif
