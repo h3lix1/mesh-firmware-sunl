@@ -162,7 +162,12 @@ void esp32Setup()
     WiFiOTA::initialize();
 #endif
 
-    // enableModemSleep();
+    // Enable ESP-IDF power management (DFS + automatic light sleep) for variants with HAS_LIGHT_SLEEP
+    // This allows automatic CPU frequency scaling (20-240MHz) and light sleep between tasks.
+    // Call here before watchdog setup to ensure power management is configured early.
+#ifdef HAS_LIGHT_SLEEP
+    enableModemSleep();
+#endif
 
 // Since we are turning on watchdogs rather late in the release schedule, we really don't want to catch any
 // false positives.  The wait-to-sleep timeout for shutting down radios is 30 secs, so pick 45 for now.
