@@ -93,13 +93,21 @@ static bool quickUSBCheck()
 
 /**
  * Quick battery check for early boot - used to decide if we should go back to sleep
- * Returns approximate battery percentage (0-100), or -1 if unable to read safely
- * Also sets isCharging to true if USB power is detected via GPIO
  *
- * IMPORTANT: This runs before Power class init, so we use the same OCV_ARRAY
- * from power.h and require ADC_MULTIPLIER to be defined by the variant.
- * If ADC_MULTIPLIER is not defined, we return -1 to force normal boot
- * (fail-safe: better to boot than get stuck in sleep loop).
+ * Returns approximate battery percentage (0-100), or -1 if unable to read safely.
+ * Also sets isCharging to true if USB power is detected via GPIO.
+ *
+ * Requirements for ADC-based battery reading:
+ *   - BATTERY_PIN: ADC pin connected to battery via voltage divider
+ *   - ADC_MULTIPLIER: Calibration factor for voltage divider (variant-specific)
+ *   - OCV_ARRAY: Open circuit voltage table from power.h (auto-selected by cell type)
+ *
+ * This runs before Power class init, so we use the same OCV table from power.h.
+ * If required defines are missing, returns -1 to force normal boot.
+ * Fail-safe design: better to boot than get stuck in sleep loop.
+ *
+ * For devices with PMU (like T-Beam S3 with AXP2101), this will return -1
+ * and the device will do a brief normal boot to read battery via I2C.
  */
 static int quickBatteryCheck(bool &isCharging)
 {
@@ -112,11 +120,11 @@ static int quickBatteryCheck(bool &isCharging)
         return 100; // USB power present, report as "charged"
     }
 
-// Only do ADC-based check if we have both BATTERY_PIN and ADC_MULTIPLIER defined
-// This prevents wrong readings from hardcoded multiplier values
-#if defined(BATTERY_PIN) && defined(ADC_MULTIPLIER)
+// Only do ADC-based check if we have BATTERY_PIN, ADC_MULTIPLIER, and OCV_ARRAY defined
+// This prevents wrong readings from hardcoded multiplier values or missing OCV tables
+#if defined(BATTERY_PIN) && defined(ADC_MULTIPLIER) && defined(OCV_ARRAY)
     // Use the same OCV table as Power class (from power.h)
-    const uint16_t OCV[11] = {OCV_ARRAY};
+    const uint16_t OCV[NUM_OCV_POINTS] = {OCV_ARRAY};
 
     // Enable ADC if needed
 #ifdef ADC_CTRL
@@ -162,23 +170,24 @@ static int quickBatteryCheck(bool &isCharging)
         return -1; // Force normal boot - reading is suspect
     }
 
-    // Convert voltage to percentage using OCV table
-    for (int i = 0; i < 11; i++) {
+    // Convert voltage to percentage using OCV table (same algorithm as Power class)
+    for (int i = 0; i < NUM_OCV_POINTS; i++) {
         if (OCV[i] <= voltage) {
             if (i == 0) {
                 return 100;
             }
-            // Linear interpolation between points
+            // Linear interpolation between OCV table points
+            // Each step in OCV table represents 10% (100% / 10 intervals = 10 points + endpoints)
             int pct = 100 - (i * 10) + (int)(10.0f * (voltage - OCV[i]) / (OCV[i - 1] - OCV[i]));
             return (pct < 0) ? 0 : ((pct > 100) ? 100 : pct);
         }
     }
-    return 0; // Below minimum voltage
+    return 0; // Below minimum voltage in OCV table
 #else
-    // No BATTERY_PIN or ADC_MULTIPLIER - can't safely do early check
-    // Return -1 to force normal boot (fail-safe)
+    // Missing BATTERY_PIN, ADC_MULTIPLIER, or OCV_ARRAY - can't safely do early check
+    // Return -1 to force normal boot (fail-safe behavior)
     return -1;
-#endif // BATTERY_PIN && ADC_MULTIPLIER
+#endif // BATTERY_PIN && ADC_MULTIPLIER && OCV_ARRAY
 }
 
 /**
@@ -355,8 +364,10 @@ void initDeepSleep()
 
 #ifdef BUTTON_PIN
             // Enable button wake so user can manually wake the device
+            // Note: We use BUTTON_PIN directly (not config.device.button_gpio) because
+            // config is not yet loaded from flash during early boot low battery recovery
 #if SOC_PM_SUPPORT_EXT_WAKEUP
-            uint64_t gpioMask = (1ULL << (config.device.button_gpio ? config.device.button_gpio : BUTTON_PIN));
+            uint64_t gpioMask = (1ULL << BUTTON_PIN);
 #ifdef BUTTON_NEED_PULLUP
             gpio_pullup_en((gpio_num_t)BUTTON_PIN);
 #endif

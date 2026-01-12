@@ -918,10 +918,13 @@ void Power::readPowerStatus()
 
 #endif
 
-    // Low battery recovery mode - enter deep sleep when battery is critically low
-    // Different thresholds for USB vs no USB:
-    //   - No USB: sleep at ≤10%, wake at ≥15%
-    //   - With USB: sleep at ≤5%, wake at >5% (USB should prevent drain above 5%)
+    // Low Battery Recovery Mode - protects battery from deep discharge
+    // Uses hysteresis thresholds to prevent oscillation between sleep/wake:
+    //   - No USB: Enter sleep at ≤10% (LOW_BATT_ENTER_THRESHOLD),
+    //             exit sleep at ≥15% (LOW_BATT_EXIT_THRESHOLD)
+    //   - With USB: Sleep only at ≤5% (LOW_BATT_USB_THRESHOLD),
+    //               wake at >5% since USB should prevent further drain
+    // Requires 10 consecutive low readings to trigger (debounce for stable detection)
 
     if (batteryLevel && powerStatus2.getHasBattery()) {
         int batteryPercent = batteryLevel->getBatteryPercent();

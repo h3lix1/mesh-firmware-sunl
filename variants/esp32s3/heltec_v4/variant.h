@@ -1,4 +1,7 @@
-// Enable low battery recovery mode - wakes periodically to check for power restoration
+// Low Battery Recovery Mode - for solar-powered deployments
+// When battery drops to <=10%, device enters deep sleep and wakes every 5 minutes
+// to check if solar charging has restored battery to >=15%. Button press forces wake.
+// This variant has ADC-based battery sensing (ADC_MULTIPLIER defined below).
 #define LOW_BATTERY_RECOVERY_ENABLED
 
 #define VEXT_ENABLE 36 // active low, powers the oled display and the lora antenna boost

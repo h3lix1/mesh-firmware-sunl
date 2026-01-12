@@ -4,12 +4,28 @@
 #include "Observer.h"
 #include "configuration.h"
 
-// Low battery recovery mode - can be enabled/configured per variant
-// To enable: #define LOW_BATTERY_RECOVERY_ENABLED in variant.h
-// To customize thresholds, define these before including sleep.h:
-//   LOW_BATT_SLEEP_INTERVAL_MS - wake interval (default: 5 minutes)
-//   LOW_BATT_ENTER_THRESHOLD   - enter sleep at this % (default: 5%)
-//   LOW_BATT_EXIT_THRESHOLD    - exit sleep at this % (default: 10%)
+/**
+ * Low Battery Recovery Mode
+ *
+ * Purpose: Prevents solar-powered nodes from completely draining their batteries.
+ * When battery drops critically low, the device enters deep sleep and periodically
+ * wakes to check if solar charging has restored sufficient power.
+ *
+ * To enable: #define LOW_BATTERY_RECOVERY_ENABLED in variant.h
+ * Also requires: BATTERY_PIN and ADC_MULTIPLIER defined for early-boot battery sensing.
+ * Devices with PMU (like T-Beam S3) will do a brief normal boot to read battery.
+ *
+ * Behavior:
+ *   - No USB: Sleep at <=10% battery, wake when >=15% (hysteresis prevents oscillation)
+ *   - With USB: Sleep only at <=5%, wake when >5% (USB should prevent further drain)
+ *   - Button press during sleep will force immediate wake (manual override)
+ *
+ * To customize thresholds, define these in variant.h before including sleep.h:
+ *   LOW_BATT_SLEEP_INTERVAL_MS - wake check interval (default: 5 minutes)
+ *   LOW_BATT_ENTER_THRESHOLD   - enter sleep at this % without USB (default: 10%)
+ *   LOW_BATT_EXIT_THRESHOLD    - exit sleep at this % without USB (default: 15%)
+ *   LOW_BATT_USB_THRESHOLD     - threshold when USB connected (default: 5%)
+ */
 
 #ifndef LOW_BATT_SLEEP_INTERVAL_MS
 #define LOW_BATT_SLEEP_INTERVAL_MS (5 * 60 * 1000) // 5 minutes wake interval
