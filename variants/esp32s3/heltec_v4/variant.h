@@ -4,6 +4,11 @@
 // This variant has ADC-based battery sensing (ADC_MULTIPLIER defined below).
 #define LOW_BATTERY_RECOVERY_ENABLED
 
+// HAS_PSRAM_NODEDB: Enable PSRAM-backed NodeDB for up to 3000 nodes.
+// This is automatically enabled for ESP32-S3 with PSRAM. Override here if needed:
+// #define HAS_PSRAM_NODEDB 1  // Force enable
+// #define HAS_PSRAM_NODEDB 0  // Force disable
+
 #define VEXT_ENABLE 36 // active low, powers the oled display and the lora antenna boost
 #define BUTTON_PIN 0
 
