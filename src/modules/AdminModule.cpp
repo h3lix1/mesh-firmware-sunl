@@ -7,6 +7,7 @@
 #include "SPILock.h"
 #include "input/InputBroker.h"
 #include "meshUtils.h"
+#include "sleep.h"
 #include <FSCommon.h>
 #include <ctype.h> // for better whitespace handling
 #if defined(ARCH_ESP32) && !MESHTASTIC_EXCLUDE_BLUETOOTH
@@ -268,6 +269,10 @@ bool AdminModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, meshta
     }
     case meshtastic_AdminMessage_get_device_metadata_request_tag: {
         LOG_INFO("Client got device metadata");
+#if defined(ARCH_ESP32) && defined(HAS_LIGHT_SLEEP)
+        // Log power diagnostics when device info is requested
+        dfsLogConstraints();
+#endif
         handleGetDeviceMetadata(mp);
         break;
     }

@@ -303,10 +303,18 @@ bool initWifi()
 #ifdef ARCH_ESP32
             WiFi.onEvent(WiFiEvent);
             WiFi.setAutoReconnect(true);
-            WiFi.setSleep(false);
 
-            // This is needed to improve performance.
+#ifdef HAS_LIGHT_SLEEP
+            // With manual frequency scaling, use modem sleep to save power
+            // while maintaining WiFi connectivity.
+            WiFi.setSleep(true);
+            esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+            LOG_INFO("WiFi: Power save mode MIN_MODEM (power saving enabled)");
+#else
+            WiFi.setSleep(false);
+            // This is needed to improve performance when not using power saving.
             esp_wifi_set_ps(WIFI_PS_NONE); // Disable radio power saving
+#endif
 
             WiFi.onEvent(
                 [](WiFiEvent_t event, WiFiEventInfo_t info) {

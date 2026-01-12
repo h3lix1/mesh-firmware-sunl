@@ -940,6 +940,11 @@ int32_t Power::runOnce()
 {
     readPowerStatus();
 
+#if defined(ARCH_ESP32) && defined(HAS_LIGHT_SLEEP)
+    // Log CPU frequency status periodically
+    dfsLogStatus();
+#endif
+
 #ifdef HAS_PMU
     // WE no longer use the IRQ line to wake the CPU (due to false wakes from sleep), but we do poll
     // the IRQ status by reading the registers over I2C
