@@ -41,7 +41,14 @@ void setBluetoothEnable(bool enable)
         }
         if (enable && !nimbleBluetooth->isActive()) {
             powerMon->setState(meshtastic_PowerMon_State_BT_On);
+#ifdef HAS_LIGHT_SLEEP
+            // Boost CPU for BLE initialization - NimBLE stack is timing-sensitive
+            setCPUFast(true);
+#endif
             nimbleBluetooth->setup();
+#ifdef HAS_LIGHT_SLEEP
+            setCPUFast(false);
+#endif
         }
         // For ESP32, no way to recover from bluetooth shutdown without reboot
         // BLE advertising automatically stops when MCU enters light-sleep(?)

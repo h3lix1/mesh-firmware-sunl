@@ -4,6 +4,7 @@
 #include "RTC.h"
 #include "concurrency/Periodic.h"
 #include "mesh/wifi/WiFiAPClient.h"
+#include "sleep.h"
 
 #include "main.h"
 #include "mesh/api/WiFiServerAPI.h"
@@ -303,10 +304,21 @@ bool initWifi()
 #ifdef ARCH_ESP32
             WiFi.onEvent(WiFiEvent);
             WiFi.setAutoReconnect(true);
-            WiFi.setSleep(false);
 
-            // This is needed to improve performance.
+#ifdef HAS_LIGHT_SLEEP
+            // With DFS (Dynamic Frequency Scaling) enabled, use modem sleep to allow
+            // CPU frequency to scale down between WiFi operations. This saves power
+            // while maintaining WiFi connectivity. The ESP-IDF will automatically
+            // boost CPU frequency when WiFi needs to transmit/receive.
+            WiFi.setSleep(true);
+            esp_wifi_set_ps(WIFI_PS_MIN_MODEM); // Allow modem sleep for DFS compatibility
+            LOG_INFO("WiFi: Power save mode MIN_MODEM (DFS compatible)");
+#else
+            WiFi.setSleep(false);
+            // This is needed to improve performance when not using DFS.
             esp_wifi_set_ps(WIFI_PS_NONE); // Disable radio power saving
+            LOG_DEBUG("WiFi: Power save mode NONE (max performance)");
+#endif
 
             WiFi.onEvent(
                 [](WiFiEvent_t event, WiFiEventInfo_t info) {
@@ -389,6 +401,10 @@ static void WiFiEvent(WiFiEvent_t event)
         break;
     case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
         LOG_INFO("Disconnected from WiFi access point");
+#ifdef HAS_LIGHT_SLEEP
+        LOG_INFO("WiFi disconnected - DFS min frequency can now drop to 20MHz");
+        dfsLogStatus();
+#endif
 #ifdef WIFI_LED
         digitalWrite(WIFI_LED, LOW);
 #endif
@@ -405,6 +421,10 @@ static void WiFiEvent(WiFiEvent_t event)
     case ARDUINO_EVENT_WIFI_STA_GOT_IP:
         LOG_INFO("Obtained IP address: %s", WiFi.localIP().toString().c_str());
         onNetworkConnected();
+#ifdef HAS_LIGHT_SLEEP
+        LOG_INFO("WiFi connected - DFS min frequency now 40MHz for WiFi stability");
+        dfsLogStatus();
+#endif
         break;
     case ARDUINO_EVENT_WIFI_STA_GOT_IP6:
 #if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)

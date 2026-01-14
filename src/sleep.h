@@ -72,9 +72,6 @@ extern int bootCount;
 extern bool inLowBatteryRecoveryMode;
 #endif
 
-// is bluetooth sw currently running?
-extern bool bluetoothOn;
-
 /// Called to ask any observers if they want to veto sleep. Return 1 to veto or 0 to allow sleep to happen
 extern Observable<void *> preflightSleep;
 
@@ -93,7 +90,16 @@ extern Observable<esp_sleep_wakeup_cause_t> notifyLightSleepEnd;
 #endif
 
 void enableModemSleep();
+
 #ifdef ARCH_ESP32
 void enableLoraInterrupt();
 bool shouldLoraWake(uint32_t msecToWake);
+
+#ifdef HAS_LIGHT_SLEEP
+// DFS (Dynamic Frequency Scaling) diagnostic functions
+// Call dfsLogStatus() periodically to log CPU frequency changes
+void dfsLogStatus();
+// Call dfsLogConstraints() to get detailed diagnostics about what might prevent scaling
+void dfsLogConstraints();
+#endif
 #endif

@@ -976,6 +976,12 @@ int32_t Power::runOnce()
 {
     readPowerStatus();
 
+#if defined(ARCH_ESP32) && defined(HAS_LIGHT_SLEEP)
+    // Log DFS (Dynamic Frequency Scaling) status on each power check
+    // This will only log when CPU frequency actually changes
+    dfsLogStatus();
+#endif
+
 #ifdef HAS_PMU
     // WE no longer use the IRQ line to wake the CPU (due to false wakes from sleep), but we do poll
     // the IRQ status by reading the registers over I2C

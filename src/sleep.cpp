@@ -21,6 +21,7 @@
 // "esp_pm_config_esp32_t is deprecated, please include esp_pm.h and use esp_pm_config_t instead"
 #include "esp32/pm.h"
 #include "esp_pm.h"
+#include "esp_sleep.h"
 #if HAS_WIFI
 #include "mesh/wifi/WiFiAPClient.h"
 #endif
@@ -28,6 +29,7 @@
 #include <RadioLib.h>
 #include <driver/rtc_io.h>
 #include <driver/uart.h>
+#include <soc/uart_reg.h>
 
 esp_sleep_source_t wakeCause; // the reason we booted this time
 #endif
@@ -253,36 +255,35 @@ static bool shouldContinueLowBatterySleep()
  */
 void setCPUFast(bool on)
 {
-#if defined(ARCH_ESP32) && HAS_WIFI && !HAS_TFT
-
-    if (isWifiAvailable()) {
-        /*
-         *
-         * There's a newly introduced bug in the espressif framework where WiFi is
-         *   unstable when the frequency is less than 240MHz.
-         *
-         *   This mostly impacts WiFi AP mode but we'll bump the frequency for
-         *     all WiFi use cases.
-         * (Added: Dec 23, 2021 by Jm Casler)
-         *
-         * Note: ESP32-C3 and chips using DFS (HAS_LIGHT_SLEEP) don't have this issue -
-         *       they can run WiFi at lower frequencies or use dynamic frequency scaling.
-         */
-#if !defined(CONFIG_IDF_TARGET_ESP32C3) && !defined(HAS_LIGHT_SLEEP)
-        LOG_DEBUG("Set CPU to 240MHz because WiFi is in use");
-        setCpuFrequencyMhz(240);
-#endif
-        return;
-    }
+#if defined(ARCH_ESP32) && !HAS_TFT
 
 // The Heltec LORA32 V1 runs at 26 MHz base frequency and doesn't react well to switching to 80 MHz...
 // ESP32-C3 has different frequency architecture and is excluded
-// HAS_LIGHT_SLEEP uses DFS (Dynamic Frequency Scaling) via enableModemSleep() instead of manual frequency setting
-#if !defined(ARDUINO_HELTEC_WIFI_LORA_32) && !defined(CONFIG_IDF_TARGET_ESP32C3) && !defined(HAS_LIGHT_SLEEP)
+#if !defined(ARDUINO_HELTEC_WIFI_LORA_32) && !defined(CONFIG_IDF_TARGET_ESP32C3)
+
+#ifdef HAS_LIGHT_SLEEP
+    // Manual frequency scaling for HAS_LIGHT_SLEEP builds
+    // 240MHz when active, 80MHz when idle (80MHz is safe for WiFi on ESP32-S3)
+    int targetFreq = on ? 240 : 80;
+    int currentFreq = getCpuFrequencyMhz();
+    if (currentFreq != targetFreq) {
+        setCpuFrequencyMhz(targetFreq);
+        LOG_INFO("Power: CPU %dMHz -> %dMHz (%s)", currentFreq, targetFreq, on ? "active" : "idle");
+    }
+#elif HAS_WIFI
+    // Legacy behavior: WiFi requires 240MHz on older ESP32 variants
+    if (isWifiAvailable()) {
+        LOG_DEBUG("Set CPU to 240MHz because WiFi is in use");
+        setCpuFrequencyMhz(240);
+        return;
+    }
+    setCpuFrequencyMhz(on ? 240 : 80);
+#else
     setCpuFrequencyMhz(on ? 240 : 80);
 #endif
 
-#endif
+#endif // HELTEC/C3 exclusions
+#endif // ARCH_ESP32
 }
 
 // Perform power on init that we do on each wake from deep sleep
@@ -720,6 +721,62 @@ esp_sleep_wakeup_cause_t doLightSleep(uint64_t sleepMsec) // FIXME, use a more r
 
 // not legal on the stock android ESP build
 
+// -----------------------------------------------------------------------------
+// CPU Frequency Monitoring (Manual scaling since auto-DFS unavailable)
+// -----------------------------------------------------------------------------
+#ifdef HAS_LIGHT_SLEEP
+static int dfsLastLoggedFreq = 0;
+static uint32_t dfsTransitionCount = 0;
+static uint32_t dfsStatusCallCount = 0;
+
+/**
+ * Log CPU frequency status. Since automatic DFS is not available in the Arduino
+ * ESP32 framework (CONFIG_PM_ENABLE not set), this tracks manual frequency changes
+ * made by setCPUFast().
+ */
+void dfsLogStatus()
+{
+    int currentFreq = getCpuFrequencyMhz();
+    int apbFreq = getApbFrequency() / 1000000;
+
+    dfsStatusCallCount++;
+    bool forceLog = (dfsStatusCallCount % 6 == 0); // Log every ~2 minutes
+
+    if (currentFreq != dfsLastLoggedFreq) {
+        if (dfsLastLoggedFreq != 0) {
+            dfsTransitionCount++;
+        }
+        dfsLastLoggedFreq = currentFreq;
+    }
+
+    if (forceLog) {
+        LOG_INFO("Power: CPU=%dMHz, APB=%dMHz, transitions=%u", currentFreq, apbFreq, dfsTransitionCount);
+    }
+}
+
+/**
+ * Log power management diagnostics.
+ * Note: Automatic DFS is NOT available in Arduino ESP32 framework.
+ * We use manual frequency scaling via setCPUFast() instead.
+ */
+void dfsLogConstraints()
+{
+    int currentFreq = getCpuFrequencyMhz();
+    int apbFreq = getApbFrequency() / 1000000;
+
+    LOG_INFO("========== Power Diagnostics ==========");
+    LOG_INFO("CPU: %dMHz (APB: %dMHz)", currentFreq, apbFreq);
+    LOG_INFO("Transitions: %u", dfsTransitionCount);
+    LOG_INFO("Mode: Manual frequency scaling (240/80MHz)");
+    LOG_INFO("Note: Auto-DFS unavailable (Arduino SDK lacks CONFIG_PM_ENABLE)");
+#if HAS_WIFI
+    LOG_INFO("WiFi: %s", isWifiAvailable() ? "ACTIVE" : "INACTIVE");
+#endif
+    LOG_INFO("Bluetooth: %s", config.bluetooth.enabled ? "ENABLED" : "DISABLED");
+    LOG_INFO("========================================");
+}
+#endif // HAS_LIGHT_SLEEP
+
 /**
  * enable modem sleep mode as needed and available.  Should lower our CPU current draw to an average of about 20mA.
  *
@@ -758,14 +815,30 @@ void enableModemSleep()
     // power consumption while maintaining quick wake-up capability.
     // Note: This requires proper handling of peripherals and is tested on specific boards.
 #ifdef HAS_LIGHT_SLEEP
-    esp32_config.light_sleep_enable = true;
-    LOG_INFO("Light sleep enabled via DFS power management (min_freq=%dMHz)", esp32_config.min_freq_mhz);
+    // Note: Automatic DFS requires CONFIG_PM_ENABLE in ESP-IDF sdkconfig.
+    // The Arduino ESP32 framework does NOT have this enabled, so we use
+    // manual setCpuFrequencyMhz() calls in setCPUFast() instead.
+    // esp_pm_configure() is still called for modem sleep benefits.
+    esp32_config.light_sleep_enable = false; // Can't enable without CONFIG_PM_ENABLE
+
+    LOG_WARN("========================================");
+    LOG_WARN("Power: Manual frequency scaling ENABLED");
+    LOG_WARN("Power: CPU 240MHz active, 80MHz idle");
+    LOG_WARN("Power: (Auto DFS unavailable - Arduino SDK)");
+    LOG_WARN("========================================");
 #else
     esp32_config.light_sleep_enable = false;
 #endif
 
     int rv = esp_pm_configure(&esp32_config);
-    LOG_DEBUG("Sleep request result %x", rv);
+    if (rv != ESP_OK) {
+        LOG_DEBUG("esp_pm_configure returned %d (expected without CONFIG_PM_ENABLE)", rv);
+    }
+
+#ifdef HAS_LIGHT_SLEEP
+    int freq = getCpuFrequencyMhz();
+    LOG_INFO("Power: Initial CPU frequency: %dMHz", freq);
+#endif
 }
 
 bool shouldLoraWake(uint32_t msecToWake)
