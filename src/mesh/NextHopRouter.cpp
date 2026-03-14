@@ -4,6 +4,9 @@
 #if !MESHTASTIC_EXCLUDE_TRACEROUTE
 #include "modules/TraceRouteModule.h"
 #endif
+#if HAS_TRAFFIC_MANAGEMENT
+#include "modules/TrafficManagementModule.h"
+#endif
 #include "NodeDB.h"
 
 NextHopRouter::NextHopRouter() {}
@@ -64,7 +67,7 @@ bool NextHopRouter::shouldFilterReceived(const meshtastic_MeshPacket *p)
                 perhapsRebroadcast(p);
             }
         } else {
-            bool isRepeated = p->hop_start > 0 && p->hop_start == p->hop_limit;
+            bool isRepeated = getHopsAway(*p) == 0;
             // If repeated and not in Tx queue anymore, try relaying again, or if we are the destination, send the ACK again
             if (isRepeated) {
                 if (!findInTxQueue(p->from, p->id)) {
@@ -101,8 +104,7 @@ void NextHopRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtast
                 bool wasAlreadyRelayer = wasRelayer(p->relay_node, p->decoded.request_id, p->to);
                 bool weWereSoleRelayer = false;
                 bool weWereRelayer = wasRelayer(ourRelayID, p->decoded.request_id, p->to, &weWereSoleRelayer);
-                if ((weWereRelayer && wasAlreadyRelayer) ||
-                    (p->hop_start != 0 && p->hop_start == p->hop_limit && weWereSoleRelayer)) {
+                if ((weWereRelayer && wasAlreadyRelayer) || (getHopsAway(*p) == 0 && weWereSoleRelayer)) {
                     if (origTx->next_hop != p->relay_node) { // Not already set
                         LOG_INFO("Update next hop of 0x%x to 0x%x based on ACK/reply (was relayer %d we were sole %d)", p->from,
                                  p->relay_node, wasAlreadyRelayer, weWereSoleRelayer);
@@ -127,15 +129,28 @@ void NextHopRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtast
 /* Check if we should be rebroadcasting this packet if so, do so. */
 bool NextHopRouter::perhapsRebroadcast(const meshtastic_MeshPacket *p)
 {
-    if (!isToUs(p) && !isFromUs(p) && p->hop_limit > 0) {
+    // Check if traffic management wants to exhaust this packet's hops
+    bool exhaustHops = false;
+#if HAS_TRAFFIC_MANAGEMENT
+    if (trafficManagementModule && trafficManagementModule->shouldExhaustHops(*p)) {
+        exhaustHops = true;
+    }
+#endif
+
+    // Allow rebroadcast if hop_limit > 0 OR if we're exhausting hops (which sets hop_limit = 0 but still needs one relay)
+    if (!isToUs(p) && !isFromUs(p) && (p->hop_limit > 0 || exhaustHops)) {
         if (p->id != 0) {
             if (isRebroadcaster()) {
                 if (p->next_hop == NO_NEXT_HOP_PREFERENCE || p->next_hop == nodeDB->getLastByteOfNodeNum(getNodeNum())) {
                     meshtastic_MeshPacket *tosend = packetPool.allocCopy(*p); // keep a copy because we will be sending it
                     LOG_INFO("Rebroadcast received message coming from %x", p->relay_node);
 
-                    // Use shared logic to determine if hop_limit should be decremented
-                    if (shouldDecrementHopLimit(p)) {
+                    // If exhausting hops, force hop_limit = 0 regardless of other logic
+                    if (exhaustHops) {
+                        tosend->hop_limit = 0;
+                        LOG_INFO("Traffic management: exhausting hops for 0x%08x, setting hop_limit=0", getFrom(p));
+                    } else if (shouldDecrementHopLimit(p)) {
+                        // Use shared logic to determine if hop_limit should be decremented
                         tosend->hop_limit--; // bump down the hop count
                     } else {
                         LOG_INFO("favorite-ROUTER/CLIENT_BASE-to-ROUTER/CLIENT_BASE rebroadcast: preserving hop_limit");
