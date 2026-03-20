@@ -981,9 +981,9 @@ size_t RadioInterface::beginSending(meshtastic_MeshPacket *p)
         LOG_WARN("hop limit %d is too high, setting to %d", p->hop_limit, HOP_RELIABLE);
         p->hop_limit = HOP_RELIABLE;
     }
-    radioBuffer.header.flags =
-        p->hop_limit | (p->want_ack ? PACKET_FLAGS_WANT_ACK_MASK : 0) | (p->via_mqtt ? PACKET_FLAGS_VIA_MQTT_MASK : 0);
-    radioBuffer.header.flags |= (p->hop_start << PACKET_FLAGS_HOP_START_SHIFT) & PACKET_FLAGS_HOP_START_MASK;
+    radioBuffer.header.flags = (uint16_t)(p->hop_limit & PACKET_FLAGS_HOP_LIMIT_MASK) |
+                               (p->want_ack ? PACKET_FLAGS_WANT_ACK_MASK : 0) | (p->via_mqtt ? PACKET_FLAGS_VIA_MQTT_MASK : 0) |
+                               (((uint16_t)p->hop_start << PACKET_FLAGS_HOP_START_SHIFT) & PACKET_FLAGS_HOP_START_MASK);
 
     // if the sender nodenum is zero, that means uninitialized
     assert(radioBuffer.header.from);

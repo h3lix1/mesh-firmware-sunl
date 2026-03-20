@@ -18,39 +18,47 @@ typedef struct _meshtastic_Config_LoRaConfig meshtastic_Config_LoRaConfig;
 #define MAX_TX_QUEUE 16 // max number of packets which can be waiting for transmission
 
 #define MAX_LORA_PAYLOAD_LEN 255 // max length of 255 per Semtech's datasheets on SX12xx
-#define MESHTASTIC_HEADER_LENGTH 16
+#define MESHTASTIC_HEADER_LENGTH 24
 #define MESHTASTIC_PKC_OVERHEAD 12
 
-#define PACKET_FLAGS_HOP_LIMIT_MASK 0x07
-#define PACKET_FLAGS_WANT_ACK_MASK 0x08
-#define PACKET_FLAGS_VIA_MQTT_MASK 0x10
-#define PACKET_FLAGS_HOP_START_MASK 0xE0
-#define PACKET_FLAGS_HOP_START_SHIFT 5
+// flags is a 16-bit field:
+//   bits  0-6: hop_limit (7 bits, supports values 0-64)
+//   bit   7:   want_ack
+//   bit   8:   via_mqtt
+//   bits  9-15: hop_start (7 bits, supports values 0-64)
+#define PACKET_FLAGS_HOP_LIMIT_MASK 0x007F
+#define PACKET_FLAGS_WANT_ACK_MASK 0x0080
+#define PACKET_FLAGS_VIA_MQTT_MASK 0x0100
+#define PACKET_FLAGS_HOP_START_MASK 0xFE00
+#define PACKET_FLAGS_HOP_START_SHIFT 9
 
 /**
- * This structure has to exactly match the wire layout when sent over the radio link.  Used to keep compatibility
- * with the old radiohead implementation.
+ * This structure has to exactly match the wire layout when sent over the radio link.
  */
 typedef struct {
-    NodeNum to, from; // can be 1 byte or four bytes
+    NodeNum to, from; // 4 bytes each
 
-    PacketId id; // can be 1 byte or 4 bytes
+    PacketId id; // 4 bytes
 
     /**
-     * Usage of flags:
-     *
-     * The bottom three bits of flags are use to store hop_limit when sent over the wire.
+     * Usage of flags (16-bit):
+     *   bits  0-6:  hop_limit (7 bits, max 64)
+     *   bit   7:    want_ack
+     *   bit   8:    via_mqtt
+     *   bits  9-15: hop_start (7 bits, max 64)
      **/
-    uint8_t flags;
+    uint16_t flags;
 
     /** The channel hash - used as a hint for the decoder to limit which channels we consider */
     uint8_t channel;
 
-    // Last byte of the NodeNum of the next-hop for this packet
-    uint8_t next_hop;
+    uint8_t _reserved; // padding for alignment
 
-    // Last byte of the NodeNum of the node that will relay/relayed this packet
-    uint8_t relay_node;
+    // Full NodeNum of the next-hop node for this packet
+    NodeNum next_hop;
+
+    // Full NodeNum of the node that will relay/relayed this packet
+    NodeNum relay_node;
 } PacketHeader;
 
 /**
@@ -92,6 +100,10 @@ class RadioInterface
     uint8_t sf = 9;
     uint8_t cr = 5;
 
+    /** One-shot TX coding-rate override (0 = use configured cr).
+     *  Set before enqueueing a retransmission; cleared automatically after the packet is sent. */
+    uint8_t txCrOverride = 0;
+
     const uint8_t NUM_SYM_CAD = 2;       // Number of symbols used for CAD, 2 is the default since RadioLib 6.3.0 as per AN1200.48
     const uint8_t NUM_SYM_CAD_24GHZ = 4; // Number of symbols used for CAD in 2.4 GHz, 4 is recommended in AN1200.22 of SX1280
     uint32_t slotTimeMsec = computeSlotTimeMsec();
@@ -122,6 +134,15 @@ class RadioInterface
     RadioInterface();
 
     virtual ~RadioInterface() {}
+
+    /** Returns the currently configured coding-rate denominator (5–8). */
+    uint8_t getBaseCr() const { return cr; }
+
+    /** Override the coding rate for the next transmitted packet.
+     *  The radio will be configured to this CR just before TX starts and
+     *  automatically restored to the configured CR after the packet is sent.
+     *  Pass 0 (or the same value as getBaseCr()) to disable the override. */
+    void setNextTxCodingRate(uint8_t crOverride) { txCrOverride = crOverride; }
 
     /**
      * Coerce LoRa config fields (bandwidth/spread_factor) derived from presets.

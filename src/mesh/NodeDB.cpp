@@ -267,6 +267,14 @@ NodeDB::NodeDB()
         config.security.is_managed = config.device.is_managed;
     }
 
+    if (!config.has_mesh_control) {
+        config.has_mesh_control = true;
+        config.mesh_control = meshtastic_Config_MeshControlConfig_init_default;
+        // Default: disabled and no control key; operators must explicitly opt in.
+        config.mesh_control.accept_policy = meshtastic_Config_MeshControlConfig_AcceptPolicy_DISABLED;
+        config.mesh_control.min_interval_secs = 60;
+    }
+
 #if !(MESHTASTIC_EXCLUDE_PKI_KEYGEN || MESHTASTIC_EXCLUDE_PKI)
 
     if (!owner.is_licensed && config.lora.region != meshtastic_Config_LoRaConfig_RegionCode_UNSET) {
@@ -568,11 +576,7 @@ void NodeDB::installDefaultConfig(bool preserveKey = false)
         true; // FIXME: maybe false in the future, and setting region to enable it. (unset region forces it off)
     config.lora.override_duty_cycle = false;
     config.lora.config_ok_to_mqtt = false;
-#if HAS_LORA_FEM
-    config.lora.fem_lna_mode = meshtastic_Config_LoRaConfig_FEM_LNA_Mode_DISABLED;
-#else
-    config.lora.fem_lna_mode = meshtastic_Config_LoRaConfig_FEM_LNA_Mode_NOT_PRESENT;
-#endif
+    // TODO: fem_lna_mode not yet in protobufs-fork
 
 #if HAS_TFT // For the devices that support MUI, default to that
     config.display.displaymode = meshtastic_Config_DisplayConfig_DisplayMode_COLOR;
@@ -583,10 +587,9 @@ void NodeDB::installDefaultConfig(bool preserveKey = false)
 #endif
 
 #ifdef USERPREFS_CONFIG_DEVICE_ROLE
-    // Restrict ROUTER*, LOST AND FOUND roles for security reasons
-    if (IS_ONE_OF(USERPREFS_CONFIG_DEVICE_ROLE, meshtastic_Config_DeviceConfig_Role_ROUTER,
-                  meshtastic_Config_DeviceConfig_Role_ROUTER_LATE, meshtastic_Config_DeviceConfig_Role_LOST_AND_FOUND)) {
-        LOG_WARN("ROUTER roles are restricted, falling back to CLIENT role");
+    // Restrict ROUTER role for security reasons
+    if (USERPREFS_CONFIG_DEVICE_ROLE == meshtastic_Config_DeviceConfig_Role_ROUTER) {
+        LOG_WARN("ROUTER role is restricted, falling back to CLIENT role");
         config.device.role = meshtastic_Config_DeviceConfig_Role_CLIENT;
     } else {
         config.device.role = USERPREFS_CONFIG_DEVICE_ROLE;
@@ -672,8 +675,7 @@ void NodeDB::installDefaultConfig(bool preserveKey = false)
 #endif
     config.position.broadcast_smart_minimum_distance = 100;
     config.position.broadcast_smart_minimum_interval_secs = default_broadcast_smart_minimum_interval_secs;
-    if (config.device.role != meshtastic_Config_DeviceConfig_Role_ROUTER &&
-        config.device.role != meshtastic_Config_DeviceConfig_Role_ROUTER_LATE)
+    if (config.device.role != meshtastic_Config_DeviceConfig_Role_ROUTER)
         config.device.node_info_broadcast_secs = default_node_info_broadcast_secs;
     config.security.serial_enabled = true;
     config.security.admin_channel_enabled = false;
@@ -933,55 +935,16 @@ void NodeDB::installRoleDefaults(meshtastic_Config_DeviceConfig_Role role)
         config.device.rebroadcast_mode = meshtastic_Config_DeviceConfig_RebroadcastMode_CORE_PORTNUMS_ONLY;
         owner.has_is_unmessagable = true;
         owner.is_unmessagable = true;
-    } else if (role == meshtastic_Config_DeviceConfig_Role_ROUTER_LATE) {
-        moduleConfig.telemetry.device_update_interval = ONE_DAY;
-        owner.has_is_unmessagable = true;
-        owner.is_unmessagable = true;
     } else if (role == meshtastic_Config_DeviceConfig_Role_SENSOR) {
         owner.has_is_unmessagable = true;
         owner.is_unmessagable = true;
         moduleConfig.telemetry.device_update_interval = default_telemetry_broadcast_interval_secs;
         moduleConfig.telemetry.environment_measurement_enabled = true;
         moduleConfig.telemetry.environment_update_interval = 300;
-    } else if (role == meshtastic_Config_DeviceConfig_Role_LOST_AND_FOUND) {
-        config.position.position_broadcast_smart_enabled = false;
-        config.position.position_broadcast_secs = 300; // Every 5 minutes
-    } else if (role == meshtastic_Config_DeviceConfig_Role_TAK) {
-        config.device.node_info_broadcast_secs = ONE_DAY;
-        config.position.position_broadcast_smart_enabled = false;
-        config.position.position_broadcast_secs = ONE_DAY;
-        // Remove Altitude MSL from flags since CoTs use HAE (height above ellipsoid)
-        config.position.position_flags =
-            (meshtastic_Config_PositionConfig_PositionFlags_ALTITUDE | meshtastic_Config_PositionConfig_PositionFlags_SPEED |
-             meshtastic_Config_PositionConfig_PositionFlags_HEADING | meshtastic_Config_PositionConfig_PositionFlags_DOP);
-        moduleConfig.telemetry.device_update_interval = ONE_DAY;
     } else if (role == meshtastic_Config_DeviceConfig_Role_TRACKER) {
         owner.has_is_unmessagable = true;
         owner.is_unmessagable = true;
         moduleConfig.telemetry.device_update_interval = default_telemetry_broadcast_interval_secs;
-    } else if (role == meshtastic_Config_DeviceConfig_Role_TAK_TRACKER) {
-        owner.has_is_unmessagable = true;
-        owner.is_unmessagable = true;
-        config.device.node_info_broadcast_secs = ONE_DAY;
-        config.position.position_broadcast_smart_enabled = true;
-        config.position.position_broadcast_secs = 3 * 60; // Every 3 minutes
-        config.position.broadcast_smart_minimum_distance = 20;
-        config.position.broadcast_smart_minimum_interval_secs = 15;
-        // Remove Altitude MSL from flags since CoTs use HAE (height above ellipsoid)
-        config.position.position_flags =
-            (meshtastic_Config_PositionConfig_PositionFlags_ALTITUDE | meshtastic_Config_PositionConfig_PositionFlags_SPEED |
-             meshtastic_Config_PositionConfig_PositionFlags_HEADING | meshtastic_Config_PositionConfig_PositionFlags_DOP);
-        moduleConfig.telemetry.device_update_interval = ONE_DAY;
-    } else if (role == meshtastic_Config_DeviceConfig_Role_CLIENT_HIDDEN) {
-        config.device.rebroadcast_mode = meshtastic_Config_DeviceConfig_RebroadcastMode_LOCAL_ONLY;
-        config.device.node_info_broadcast_secs = MAX_INTERVAL;
-        config.position.position_broadcast_smart_enabled = false;
-        config.position.position_broadcast_secs = MAX_INTERVAL;
-        moduleConfig.neighbor_info.update_interval = MAX_INTERVAL;
-        moduleConfig.telemetry.device_update_interval = MAX_INTERVAL;
-        moduleConfig.telemetry.environment_update_interval = MAX_INTERVAL;
-        moduleConfig.telemetry.air_quality_interval = MAX_INTERVAL;
-        moduleConfig.telemetry.health_update_interval = MAX_INTERVAL;
     }
 }
 
@@ -1415,12 +1378,7 @@ void NodeDB::loadFromDisk()
     if (portduino_config.has_configDisplayMode) {
         config.display.displaymode = (_meshtastic_Config_DisplayConfig_DisplayMode)portduino_config.configDisplayMode;
     }
-    if (portduino_config.has_statusMessage) {
-        moduleConfig.has_statusmessage = true;
-        strncpy(moduleConfig.statusmessage.node_status, portduino_config.statusMessage.c_str(),
-                sizeof(moduleConfig.statusmessage.node_status));
-        moduleConfig.statusmessage.node_status[sizeof(moduleConfig.statusmessage.node_status) - 1] = '\0';
-    }
+    // TODO: statusmessage not yet in protobufs-fork
     if (portduino_config.enable_UDP) {
         config.network.enabled_protocols = meshtastic_Config_NetworkConfig_ProtocolFlags_UDP_BROADCAST;
     }
@@ -1564,7 +1522,7 @@ bool NodeDB::saveToDiskNoRetry(int saveWhat)
         moduleConfig.has_ambient_lighting = true;
         moduleConfig.has_audio = true;
         moduleConfig.has_paxcounter = true;
-        moduleConfig.has_statusmessage = true;
+        // TODO: moduleConfig.has_statusmessage not yet in protobufs-fork
 
         success &=
             saveProto(moduleConfigFileName, meshtastic_LocalModuleConfig_size, &meshtastic_LocalModuleConfig_msg, &moduleConfig);
@@ -1789,17 +1747,8 @@ void NodeDB::addFromContact(meshtastic_SharedContact contact)
          * nodeinfo because it has: !is_favorite && last_heard==0. To keep this from happening when we addFromContact, we set the
          * new node as a favorite, and we leave last_heard alone (even if it's zero).
          */
-        if (config.device.role == meshtastic_Config_DeviceConfig_Role_CLIENT_BASE) {
-            // Special case for CLIENT_BASE: is_favorite has special meaning, and we don't want to automatically set it
-            // without the user doing so deliberately. We don't normally expect users to use a CLIENT_BASE to send DMs or to add
-            // contacts, but we should make sure it doesn't auto-favorite in case they do. Instead, as a workaround, we'll set
-            // last_heard to now, so that the add_contact node doesn't immediately get evicted.
-            info->last_heard = getTime();
-        } else {
-            // Normal case: set is_favorite to prevent expiration.
-            // last_heard will remain as-is (or remain 0 if this entry wasn't in the nodeDB).
-            info->is_favorite = true;
-        }
+        // Set is_favorite to prevent expiration.
+        info->is_favorite = true;
 
         // As the clients will begin sending the contact with DMs, we want to strictly check if the node is manually verified
         if (contact.manually_verified) {

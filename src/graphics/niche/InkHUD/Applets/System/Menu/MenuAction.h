@@ -66,9 +66,7 @@ enum MenuAction {
     SET_REGION_BR_902,
     // Device Roles
     SET_ROLE_CLIENT,
-    SET_ROLE_CLIENT_MUTE,
     SET_ROLE_ROUTER,
-    SET_ROLE_REPEATER,
     // Presets
     SET_PRESET_LONG_SLOW,
     SET_PRESET_LONG_MODERATE,

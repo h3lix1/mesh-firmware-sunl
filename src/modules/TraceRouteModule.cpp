@@ -299,29 +299,27 @@ void TraceRouteModule::updateNextHops(const meshtastic_MeshPacket &p, meshtastic
         if (nextHop == NODENUM_BROADCAST) {
             return;
         }
-        uint8_t nextHopByte = nodeDB->getLastByteOfNodeNum(nextHop);
-
         // For the rest of the nodes in the route, set their next-hop
         // Note: if we are the last in the route, this loop will not run
         for (int8_t i = nextHopIndex; i < r->route_count; i++) {
             NodeNum targetNode = r->route[i];
-            maybeSetNextHop(targetNode, nextHopByte);
+            maybeSetNextHop(targetNode, nextHop);
         }
 
         // Also set next-hop for the destination node
-        maybeSetNextHop(p.from, nextHopByte);
+        maybeSetNextHop(p.from, nextHop);
     }
 }
 
-void TraceRouteModule::maybeSetNextHop(NodeNum target, uint8_t nextHopByte)
+void TraceRouteModule::maybeSetNextHop(NodeNum target, NodeNum nextHop)
 {
     if (target == NODENUM_BROADCAST)
         return;
 
     meshtastic_NodeInfoLite *node = nodeDB->getMeshNode(target);
-    if (node && node->next_hop != nextHopByte) {
-        LOG_INFO("Updating next-hop for 0x%08x to 0x%02x based on traceroute", target, nextHopByte);
-        node->next_hop = nextHopByte;
+    if (node && node->next_hop != nextHop) {
+        LOG_INFO("Updating next-hop for 0x%08x to 0x%08x based on traceroute", target, nextHop);
+        node->next_hop = nextHop;
     }
 }
 
@@ -407,7 +405,7 @@ void TraceRouteModule::appendMyIDandSNR(meshtastic_RouteDiscovery *updated, floa
     if (SNRonly)
         return;
 
-    // Length of route array can normally not be exceeded due to the max. hop_limit of 7
+    // Length of route array is bounded by the proto-defined ROUTE_SIZE (8 entries)
     if (*route_count < ROUTE_SIZE) {
         route[*route_count] = myNodeInfo.my_node_num;
         *route_count += 1;

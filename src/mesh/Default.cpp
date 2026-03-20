@@ -34,6 +34,16 @@ uint32_t Default::getConfiguredOrMinimumValue(uint32_t configured, uint32_t minV
 
 uint8_t Default::getConfiguredOrDefaultHopLimit(uint8_t configured)
 {
-    // Use the configured hop limit if provided; otherwise, use the default hop limit.
-    return (configured > 0 ? configured : config.lora.hop_limit);
+    // Use the configured hop limit if provided; otherwise use config, capped at HOP_MAX.
+    uint8_t limit = (configured > 0 ? configured : (config.lora.hop_limit > 0 ? (uint8_t)config.lora.hop_limit : HOP_RELIABLE));
+    return (limit > HOP_MAX ? HOP_MAX : limit);
+}
+
+uint8_t Default::getConfiguredOrDefaultBroadcastHopLimit(uint8_t configured)
+{
+    // Use the configured broadcast hop limit if provided; otherwise use config or HOP_BROADCAST default.
+    uint8_t limit =
+        (configured > 0 ? configured
+                        : (config.lora.broadcast_hop_limit > 0 ? (uint8_t)config.lora.broadcast_hop_limit : HOP_BROADCAST));
+    return (limit > HOP_MAX ? HOP_MAX : limit);
 }

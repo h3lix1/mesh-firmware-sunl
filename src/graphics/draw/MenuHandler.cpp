@@ -218,14 +218,8 @@ void menuHandler::LoraRegionPicker(uint32_t duration)
 
 void menuHandler::deviceRolePicker()
 {
-    static const char *optionsArray[] = {"Back", "Client", "Client Mute", "Lost and Found", "Tracker"};
-    enum optionsNumbers {
-        Back = 0,
-        devicerole_client = 1,
-        devicerole_clientmute = 2,
-        devicerole_lostandfound = 3,
-        devicerole_tracker = 4
-    };
+    static const char *optionsArray[] = {"Back", "Client", "Router", "Tracker", "Sensor"};
+    enum optionsNumbers { Back = 0, devicerole_client = 1, devicerole_router = 2, devicerole_tracker = 3, devicerole_sensor = 4 };
     BannerOverlayOptions bannerOptions;
     bannerOptions.message = "Device Role";
     bannerOptions.optionsArrayPtr = optionsArray;
@@ -237,12 +231,12 @@ void menuHandler::deviceRolePicker()
             return;
         } else if (selected == devicerole_client) {
             config.device.role = meshtastic_Config_DeviceConfig_Role_CLIENT;
-        } else if (selected == devicerole_clientmute) {
-            config.device.role = meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE;
-        } else if (selected == devicerole_lostandfound) {
-            config.device.role = meshtastic_Config_DeviceConfig_Role_LOST_AND_FOUND;
+        } else if (selected == devicerole_router) {
+            config.device.role = meshtastic_Config_DeviceConfig_Role_ROUTER;
         } else if (selected == devicerole_tracker) {
             config.device.role = meshtastic_Config_DeviceConfig_Role_TRACKER;
+        } else if (selected == devicerole_sensor) {
+            config.device.role = meshtastic_Config_DeviceConfig_Role_SENSOR;
         }
         service->reloadConfig(SEGMENT_CONFIG);
         rebootAtMsec = (millis() + DEFAULT_REBOOT_SECONDS * 1000);

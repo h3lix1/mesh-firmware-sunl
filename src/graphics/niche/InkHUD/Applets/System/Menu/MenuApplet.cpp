@@ -680,16 +680,8 @@ void InkHUD::MenuApplet::execute(MenuItem item)
         applyDeviceRole(meshtastic_Config_DeviceConfig_Role_CLIENT);
         break;
 
-    case SET_ROLE_CLIENT_MUTE:
-        applyDeviceRole(meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE);
-        break;
-
     case SET_ROLE_ROUTER:
         applyDeviceRole(meshtastic_Config_DeviceConfig_Role_ROUTER);
-        break;
-
-    case SET_ROLE_REPEATER:
-        applyDeviceRole(meshtastic_Config_DeviceConfig_Role_REPEATER);
         break;
 
     // Presets
@@ -1275,9 +1267,7 @@ void InkHUD::MenuApplet::showPage(MenuPage page)
         previousPage = MenuPage::NODE_CONFIG_DEVICE;
         items.push_back(MenuItem("Back", previousPage));
         items.push_back(MenuItem("Client", MenuAction::SET_ROLE_CLIENT, MenuPage::EXIT));
-        items.push_back(MenuItem("Client Mute", MenuAction::SET_ROLE_CLIENT_MUTE, MenuPage::EXIT));
         items.push_back(MenuItem("Router", MenuAction::SET_ROLE_ROUTER, MenuPage::EXIT));
-        items.push_back(MenuItem("Repeater", MenuAction::SET_ROLE_REPEATER, MenuPage::EXIT));
         items.push_back(MenuItem("Exit", MenuPage::EXIT));
         break;
     }

@@ -24,9 +24,9 @@ PacketCacheEntry *PacketCache::cache(const meshtastic_MeshPacket *p, bool preser
     e->header.channel = p->channel;
     e->header.next_hop = p->next_hop;
     e->header.relay_node = p->relay_node;
-    e->header.flags = (p->hop_limit & PACKET_FLAGS_HOP_LIMIT_MASK) | (p->want_ack ? PACKET_FLAGS_WANT_ACK_MASK : 0) |
+    e->header.flags = (uint16_t)(p->hop_limit & PACKET_FLAGS_HOP_LIMIT_MASK) | (p->want_ack ? PACKET_FLAGS_WANT_ACK_MASK : 0) |
                       (p->via_mqtt ? PACKET_FLAGS_VIA_MQTT_MASK : 0) |
-                      ((p->hop_start << PACKET_FLAGS_HOP_START_SHIFT) & PACKET_FLAGS_HOP_START_MASK);
+                      (((uint16_t)p->hop_start << PACKET_FLAGS_HOP_START_SHIFT) & PACKET_FLAGS_HOP_START_MASK);
 
     PacketCacheMetadata m{};
     if (preserveMetadata) {
