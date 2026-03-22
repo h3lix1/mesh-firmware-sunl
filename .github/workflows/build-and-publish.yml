@@ -24,19 +24,73 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  DEFAULT_TARGETS: "tlora-v2-1-1_6"
-
 jobs:
+  resolve-targets:
+    runs-on: ubuntu-latest
+    outputs:
+      build_matrix: ${{ steps.resolve.outputs.build_matrix }}
+    steps:
+      - name: Checkout firmware repo
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          ref: baymesh-refactor
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install PlatformIO
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --upgrade platformio
+
+      - name: Resolve Baymesh target matrix
+        id: resolve
+        shell: bash
+        run: |
+          python <<'PY'
+          import json
+          import pathlib
+          import subprocess
+
+          repo = pathlib.Path.cwd()
+          wanted = json.loads((repo / ".github" / "baymesh-targets.json").read_text(encoding="utf-8"))
+          matrix = json.loads(subprocess.check_output(
+              ["python", "bin/generate_ci_matrix.py", "all", "--level", "extra"],
+              text=True,
+              cwd=repo,
+          ))
+
+          matrix_by_board = {entry["board"]: entry for entry in matrix if not entry["board"].endswith("_dbg")}
+          resolved = [matrix_by_board[name] for name in wanted if name in matrix_by_board]
+          missing = [name for name in wanted if name not in matrix_by_board]
+
+          if missing:
+              raise SystemExit(f"Missing Baymesh targets in CI matrix: {', '.join(missing)}")
+
+          output_path = pathlib.Path("/tmp/baymesh-build-matrix.json")
+          output_path.write_text(json.dumps(resolved), encoding="utf-8")
+
+          with pathlib.Path("/tmp/baymesh-github-output.txt").open("w", encoding="utf-8") as handle:
+              handle.write("build_matrix=")
+              handle.write(json.dumps(resolved))
+              handle.write("\n")
+          PY
+
+          cat /tmp/baymesh-github-output.txt >> "$GITHUB_OUTPUT"
+
   build:
+    needs: resolve-targets
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
     strategy:
       fail-fast: false
       matrix:
-        target:
-          - tlora-v2-1-1_6
+        build: ${{ fromJson(needs.resolve-targets.outputs.build_matrix) }}
     steps:
       - name: Checkout firmware repo
         uses: actions/checkout@v6
@@ -67,25 +121,25 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install --upgrade platformio
 
-      - name: Build ${{ matrix.target }}
-        run: pio run -e ${{ matrix.target }}
+      - name: Build ${{ matrix.build.board }}
+        run: pio run -e ${{ matrix.build.board }}
 
-      - name: Collect ${{ matrix.target }} artifacts
+      - name: Collect ${{ matrix.build.board }} artifacts
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "dist/${{ matrix.target }}"
-          find ".pio/build/${{ matrix.target }}" -maxdepth 1 -type f \
+          mkdir -p "dist/${{ matrix.build.board }}"
+          find ".pio/build/${{ matrix.build.board }}" -maxdepth 1 -type f \
             \( -name '*.bin' -o -name '*.uf2' -o -name '*.hex' -o -name '*.zip' -o -name '*.json' -o -name '*.mt.json' \) \
-            -exec cp {} "dist/${{ matrix.target }}/" \;
-          find "dist/${{ matrix.target }}" -maxdepth 1 -type f -print
-          test -n "$(find "dist/${{ matrix.target }}" -maxdepth 1 -type f | head -n 1)"
+            -exec cp {} "dist/${{ matrix.build.board }}/" \;
+          find "dist/${{ matrix.build.board }}" -maxdepth 1 -type f -print
+          test -n "$(find "dist/${{ matrix.build.board }}" -maxdepth 1 -type f | head -n 1)"
 
-      - name: Upload ${{ matrix.target }} artifacts
+      - name: Upload ${{ matrix.build.board }} artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: release-${{ matrix.target }}
-          path: dist/${{ matrix.target }}/*
+          name: release-${{ matrix.build.board }}
+          path: dist/${{ matrix.build.board }}/*
           if-no-files-found: error
           retention-days: 7
 
@@ -97,6 +151,12 @@ jobs:
     env:
       VERSION: ${{ needs.build.outputs.version }}
     steps:
+      - name: Checkout firmware repo
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          ref: baymesh-refactor
+
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
@@ -127,6 +187,7 @@ jobs:
           find "$GITHUB_WORKSPACE/artifacts" -maxdepth 1 -type f \
             \( -name '*.bin' -o -name '*.uf2' -o -name '*.hex' -o -name '*.zip' -o -name '*.json' \) \
             -exec cp {} "$STAGING_DIR/" \;
+          cp "$GITHUB_WORKSPACE/docs/baymesh-release-notes.md" "$STAGING_DIR/release_notes.md"
 
           python <<'PY'
           import json
