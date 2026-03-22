@@ -1,0 +1,80 @@
+name: Build and Publish
+
+on:
+  push:
+    branches:
+      - baymesh-refactor
+
+jobs:
+  build:
+    uses: ./.github/workflows/main_matrix.yml
+    secrets: inherit
+
+  publish:
+    needs: build
+    if: github.ref_name == 'baymesh-refactor'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout firmware repo
+        uses: actions/checkout@v6
+        with:
+          ref: baymesh-refactor
+
+      - name: Get version
+        run: |
+          VERSION=$(git log -1 --format='2.7.21.%h')
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Download firmware artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: ./firmware
+          merge-multiple: true
+
+      - name: Build firmware packages
+        run: |
+          mkdir -p ./publish/$VERSION
+
+          # Create directories for each board
+          for f in firmware-*.*.*; do
+            [ -f "$f" ] || continue
+            board=$(echo "$f" | sed 's/firmware-//' | sed 's/-'$VERSION'.*//')
+            mkdir -p ./publish/$VERSION/$board
+            cp "$f" ./publish/$VERSION/$board/
+          done
+
+          ls -R ./publish/
+
+      - name: Checkout firmware-pages repo
+        uses: actions/checkout@v6
+        with:
+          repository: baymesh/bayme.sh-firmware-pages
+          path: firmware-pages
+          token: ${{ secrets.GH_TOKEN }}
+          sparse-checkout: |
+            *
+            !*
+
+      - name: Copy firmware to pages repo
+        run: |
+          rm -rf firmware-pages/$VERSION
+          mkdir -p firmware-pages/$VERSION
+          cp -r ./publish/$VERSION/* firmware-pages/$VERSION/
+
+          cd firmware-pages
+          zip -r $VERSION.zip $VERSION
+
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add -A
+          git status
+
+      - name: Push to firmware-pages
+        uses: ad-m/github-push-action@master
+        with:
+          repository: baymesh/bayme.sh-firmware-pages
+          token: ${{ secrets.GH_TOKEN }}
+          directory: firmware-pages
+          force: true
