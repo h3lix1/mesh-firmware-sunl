@@ -1,77 +1,103 @@
-name: Build and Publish
+name: Build and Publish Firmware
 
 on:
   push:
     branches:
       - baymesh-refactor
+  workflow_dispatch:
 
 jobs:
   build:
-    uses: ./.github/workflows/main_matrix.yml
-    secrets: inherit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: baymesh-refactor
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.x"
+          cache: pip
+
+      - name: Install PlatformIO
+        run: pip install -U platformio
+
+      - name: Build tlora-v2-1-1_6
+        run: platformio run -e tlora-v2-1-1_6
+
+      - name: Build rak4631
+        run: platformio run -e rak4631
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v8
+        with:
+          name: firmware-builds
+          path: |
+            .pio/build/tlora-v2-1-1_6/release/*
+            .pio/build/rak4631/release/*
+          retention-days: 7
 
   publish:
     needs: build
-    if: github.ref_name == 'baymesh-refactor'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Checkout firmware repo
-        uses: actions/checkout@v6
-        with:
-          ref: baymesh-refactor
-
       - name: Get version
         run: |
           VERSION=$(git log -1 --format='2.7.21.%h')
           echo "VERSION=$VERSION" >> $GITHUB_ENV
 
-      - name: Download firmware artifacts
+      - name: Download artifacts
         uses: actions/download-artifact@v8
         with:
+          name: firmware-builds
           path: ./firmware
-          merge-multiple: true
 
-      - name: Build firmware packages
-        run: |
-          mkdir -p ./publish/$VERSION
-
-          # Create directories for each board
-          for f in firmware-*.*.*; do
-            [ -f "$f" ] || continue
-            board=$(echo "$f" | sed 's/firmware-//' | sed 's/-'$VERSION'.*//')
-            mkdir -p ./publish/$VERSION/$board
-            cp "$f" ./publish/$VERSION/$board/
-          done
-
-          ls -R ./publish/
-
-      - name: Checkout firmware-pages repo
+      - name: Checkout firmware-pages
         uses: actions/checkout@v6
         with:
           repository: baymesh/bayme.sh-firmware-pages
           path: firmware-pages
           token: ${{ secrets.GH_TOKEN }}
-          sparse-checkout: |
-            *
-            !*
 
-      - name: Copy firmware to pages repo
+      - name: Package and publish
         run: |
-          rm -rf firmware-pages/$VERSION
-          mkdir -p firmware-pages/$VERSION
-          cp -r ./publish/$VERSION/* firmware-pages/$VERSION/
-
           cd firmware-pages
+
+          # Remove old version if exists
+          rm -rf $VERSION
+          mkdir -p $VERSION
+
+          # Copy firmware files (handle both tlora and rak4631)
+          cp -r ../firmware/* $VERSION/ 2>/dev/null || true
+
+          # Create manifests for each board
+          for f in $VERSION/firmware-*.*.*; do
+            [ -f "$f" ] || continue
+            echo "Processing: $f"
+            board=$(echo "$f" | sed 's/.*firmware-//' | sed 's/-[0-9].*//')
+            size=$(stat -c%s "$f")
+            md5=$(md5sum "$f" | cut -d' ' -f1)
+            echo "{\"name\":\"$(basename $f)\",\"board\":\"$board\",\"size\":$size,\"md5\":\"$md5\"}" >> $VERSION/manifest.json
+          done
+
+          # List what we have
+          ls -la $VERSION/
+
+          # Create zip
           zip -r $VERSION.zip $VERSION
 
+          # Commit
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add -A
           git status
+          git diff --cached --stat || echo "Nothing to commit"
 
-      - name: Push to firmware-pages
+      - name: Push
         uses: ad-m/github-push-action@master
         with:
           repository: baymesh/bayme.sh-firmware-pages
