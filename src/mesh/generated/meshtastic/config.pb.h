@@ -10,6 +10,20 @@
 #error Regenerate this file with the current version of nanopb generator.
 #endif
 
+/* Stub: FEM LNA mode (not yet in baymesh protobufs fork) */
+#ifndef meshtastic_Config_LoRaConfig_FEM_LNA_Mode_ENABLED
+#define meshtastic_Config_LoRaConfig_FEM_LNA_Mode_ENABLED 1
+#endif
+#ifndef meshtastic_Config_LoRaConfig_FEM_LNA_Mode_DISABLED
+#define meshtastic_Config_LoRaConfig_FEM_LNA_Mode_DISABLED 0
+#endif
+#ifndef meshtastic_Config_LoRaConfig_FEM_LNA_Mode_NOT_PRESENT
+#define meshtastic_Config_LoRaConfig_FEM_LNA_Mode_NOT_PRESENT 2
+#endif
+#ifndef meshtastic_Config_LoRaConfig_FEM_LNA_Mode_MAX
+#define meshtastic_Config_LoRaConfig_FEM_LNA_Mode_MAX 2
+#endif
+
 /* Enum definitions */
 /* Defines the device's role on the Mesh network */
 typedef enum _meshtastic_Config_DeviceConfig_Role {
@@ -572,6 +586,8 @@ typedef struct _meshtastic_Config_LoRaConfig {
     bool ignore_mqtt;
     /* Sets the ok_to_mqtt bit on outgoing packets */
     bool config_ok_to_mqtt;
+    /* Stub: FEM LNA mode (not in baymesh protobufs fork yet) */
+    uint8_t fem_lna_mode;
 } meshtastic_Config_LoRaConfig;
 
 typedef struct _meshtastic_Config_BluetoothConfig {
