@@ -37,7 +37,6 @@
 #if !MESHTASTIC_EXCLUDE_POWERSTRESS
 #include "modules/PowerStressModule.h"
 #endif
-#include "modules/CodingRateSoundCheck.h"
 #include "modules/MeshControlModule.h"
 #include "modules/RoutingModule.h"
 #if HAS_TRAFFIC_MANAGEMENT && !MESHTASTIC_EXCLUDE_TRAFFIC_MANAGEMENT
@@ -136,7 +135,6 @@ void setupModules()
 #if !MESHTASTIC_EXCLUDE_ADMIN
     adminModule = new AdminModule();
 #endif
-    codingRateSoundCheckModule = new CodingRateSoundCheckModule();
     meshControlModule = new MeshControlModule();
 #if !MESHTASTIC_EXCLUDE_NODEINFO
     nodeInfoModule = new NodeInfoModule();

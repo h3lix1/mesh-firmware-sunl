@@ -1,6 +1,5 @@
 #include "AdminModule.h"
 #include "Channels.h"
-#include "CodingRateSoundCheck.h"
 #include "MeshControlModule.h"
 #include "MeshService.h"
 #include "NodeDB.h"
@@ -513,14 +512,6 @@ bool AdminModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, meshta
         exit(0);
         break;
 #endif
-
-    case meshtastic_AdminMessage_begin_sound_check_tag: {
-        NodeNum targetNode = r->begin_sound_check; // 0 = auto-pick best neighbor
-        LOG_INFO("Admin: begin CR sound-check (target=0x%08x)", targetNode);
-        if (codingRateSoundCheckModule)
-            codingRateSoundCheckModule->triggerSoundCheck(targetNode);
-        break;
-    }
 
     case meshtastic_AdminMessage_mesh_control_apply_tag: {
         bool approve = r->mesh_control_apply;
