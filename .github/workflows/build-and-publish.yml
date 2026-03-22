@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - baymesh-refactor
-  workflow_dispatch:
 
 jobs:
   build:
@@ -19,24 +18,18 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.x"
-          cache: pip
 
       - name: Install PlatformIO
         run: pip install -U platformio
 
       - name: Build tlora-v2-1-1_6
-        run: platformio run -e tlora-v2-1-1_6
+        run: pio run -e tlora-v2-1-1_6
 
-      - name: Build rak4631
-        run: platformio run -e rak4631
-
-      - name: Upload artifacts
+      - name: Upload artifact
         uses: actions/upload-artifact@v8
         with:
           name: firmware-builds
-          path: |
-            .pio/build/tlora-v2-1-1_6/release/*
-            .pio/build/rak4631/release/*
+          path: .pio/build/tlora-v2-1-1_6/release/*
           retention-days: 7
 
   publish:
@@ -66,36 +59,14 @@ jobs:
       - name: Package and publish
         run: |
           cd firmware-pages
-
-          # Remove old version if exists
-          rm -rf $VERSION
+          rm -rf $VERSION || true
           mkdir -p $VERSION
-
-          # Copy firmware files (handle both tlora and rak4631)
-          cp -r ../firmware/* $VERSION/ 2>/dev/null || true
-
-          # Create manifests for each board
-          for f in $VERSION/firmware-*.*.*; do
-            [ -f "$f" ] || continue
-            echo "Processing: $f"
-            board=$(echo "$f" | sed 's/.*firmware-//' | sed 's/-[0-9].*//')
-            size=$(stat -c%s "$f")
-            md5=$(md5sum "$f" | cut -d' ' -f1)
-            echo "{\"name\":\"$(basename $f)\",\"board\":\"$board\",\"size\":$size,\"md5\":\"$md5\"}" >> $VERSION/manifest.json
-          done
-
-          # List what we have
-          ls -la $VERSION/
-
-          # Create zip
+          cp ../firmware/* $VERSION/ 2>/dev/null || true
           zip -r $VERSION.zip $VERSION
-
-          # Commit
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add -A
-          git status
-          git diff --cached --stat || echo "Nothing to commit"
+          git diff --cached --stat || echo "nothing to commit"
 
       - name: Push
         uses: ad-m/github-push-action@master
