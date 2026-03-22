@@ -4,105 +4,22 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Firmware version (e.g., 2.7.21.f634e2f)"
-        required: true
+        description: "Optional firmware version override (defaults to 2.7.21.<short-sha>)"
+        required: false
         type: string
 
+concurrency:
+  group: baymesh-manual-publish-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
-  publish:
-    runs-on: ubuntu-latest
+  build-and-publish:
+    uses: ./.github/workflows/build-and-publish.yml
     permissions:
       contents: write
-    steps:
-      - name: Checkout firmware repo
-        uses: actions/checkout@v6
-        with:
-          ref: baymesh-refactor
-          fetch-depth: 0
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.x"
-
-      - name: Download all firmware artifacts
-        uses: actions/download-artifact@v8
-        with:
-          path: ./firmware
-
-      - name: Organize firmware by version
-        run: |
-          VERSION="${{ github.event.inputs.version }}"
-          mkdir -p ./publish/$VERSION
-
-          # Find and move all firmware files
-          for dir in firmware-*/; do
-            echo "Processing: $dir"
-            mv "$dir"*".bin" ./publish/$VERSION/ 2>/dev/null || true
-            mv "$dir"*".uf2" ./publish/$VERSION/ 2>/dev/null || true
-            mv "$dir"*".hex" ./publish/$VERSION/ 2>/dev/null || true
-            mv "$dir"*".factory.bin" ./publish/$VERSION/ 2>/dev/null || true
-          done
-
-          echo "Files in publish directory:"
-          ls -la ./publish/$VERSION/
-
-      - name: Generate manifest
-        run: |
-          VERSION="${{ github.event.inputs.version }}"
-          cd ./publish/$VERSION
-
-          # Create manifest JSON
-          {
-            echo "{"
-            echo '  "version": "'"$VERSION"'",'
-            echo '  "files": ['
-            
-            first=true
-            for f in *.bin *.uf2 *.hex *.factory.bin 2>/dev/null; do
-              [ -f "$f" ] || continue
-              [ "$first" = false ] && echo ','
-              first=false
-              size=$(stat -c%s "$f")
-              md5=$(md5sum "$f" | cut -d' ' -f1)
-              board=$(echo "$f" | sed 's/firmware-//' | sed 's/-'"$VERSION"'.*//')
-              echo -n "    { \"name\": \"$f\", \"board\": \"$board\", \"size\": $size, \"md5\": \"$md5\" }"
-            done
-            
-            echo ""
-            echo "  ]"
-            echo "}"
-          } > manifest.json
-
-          cat manifest.json
-
-      - name: Checkout firmware-pages repo
-        uses: actions/checkout@v6
-        with:
-          repository: baymesh/bayme.sh-firmware-pages
-          path: firmware-pages
-          token: ${{ secrets.GH_TOKEN }}
-
-      - name: Copy firmware to pages repo
-        run: |
-          VERSION="${{ github.event.inputs.version }}"
-          rm -rf firmware-pages/$VERSION
-          cp -r ./publish/$VERSION firmware-pages/
-
-          cd firmware-pages
-          zip -r $VERSION.zip $VERSION
-
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          git add $VERSION $VERSION.zip
-          git commit -m "Add firmware $VERSION" || echo "No changes to commit"
-
-          git status
-
-      - name: Push to firmware-pages
-        uses: ad-m/github-push-action@master
-        with:
-          repository: baymesh/bayme.sh-firmware-pages
-          token: ${{ secrets.GH_TOKEN }}
-          directory: firmware-pages
-          force: true
+    with:
+      version: ${{ inputs.version }}
+    secrets: inherit

@@ -4,32 +4,85 @@ on:
   push:
     branches:
       - baymesh-refactor
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Optional firmware version override (defaults to 2.7.21.<short-sha>)"
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      version:
+        description: "Optional firmware version override (defaults to 2.7.21.<short-sha>)"
+        required: false
+        type: string
+
+concurrency:
+  group: baymesh-firmware-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DEFAULT_TARGETS: "tlora-v2-1-1_6"
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - tlora-v2-1-1_6
     steps:
-      - uses: actions/checkout@v6
+      - name: Checkout firmware repo
+        uses: actions/checkout@v6
         with:
+          fetch-depth: 0
           ref: baymesh-refactor
           submodules: recursive
+
+      - name: Resolve firmware version
+        id: version
+        shell: bash
+        run: |
+          VERSION="${{ inputs.version }}"
+          if [ -z "$VERSION" ]; then
+            VERSION="2.7.21.$(git rev-parse --short HEAD)"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.x"
+          python-version: "3.12"
 
       - name: Install PlatformIO
-        run: pip install -U platformio
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --upgrade platformio
 
-      - name: Build tlora-v2-1-1_6
-        run: pio run -e tlora-v2-1-1_6
+      - name: Build ${{ matrix.target }}
+        run: pio run -e ${{ matrix.target }}
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v8
+      - name: Collect ${{ matrix.target }} artifacts
+        shell: bash
+        run: |
+          mkdir -p "dist/${{ matrix.target }}"
+          cp -R ".pio/build/${{ matrix.target }}/release/." "dist/${{ matrix.target }}/"
+          find "dist/${{ matrix.target }}" -maxdepth 1 -type f -print
+
+      - name: Upload ${{ matrix.target }} artifacts
+        uses: actions/upload-artifact@v4
         with:
-          name: firmware-builds
-          path: .pio/build/tlora-v2-1-1_6/release/*
+          name: release-${{ matrix.target }}
+          path: dist/${{ matrix.target }}/*
+          if-no-files-found: error
           retention-days: 7
 
   publish:
@@ -37,41 +90,85 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
     steps:
-      - name: Get version
-        run: |
-          VERSION=$(git log -1 --format='2.7.21.%h')
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-
-      - name: Download artifacts
-        uses: actions/download-artifact@v8
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
         with:
-          name: firmware-builds
-          path: ./firmware
+          pattern: release-*
+          path: artifacts
+          merge-multiple: true
 
       - name: Checkout firmware-pages
         uses: actions/checkout@v6
         with:
           repository: baymesh/bayme.sh-firmware-pages
+          ref: gh-pages
           path: firmware-pages
           token: ${{ secrets.GH_TOKEN }}
 
-      - name: Package and publish
+      - name: Package release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RELEASE_DIR="firmware-$VERSION"
+          PAGES_DIR="$GITHUB_WORKSPACE/firmware-pages"
+          STAGING_DIR="$GITHUB_WORKSPACE/staging/$RELEASE_DIR"
+          ROOT_MANIFEST="$PAGES_DIR/firmware-$VERSION.json"
+          ROOT_ZIP="$PAGES_DIR/firmware-$VERSION.zip"
+
+          mkdir -p "$STAGING_DIR"
+          find "$GITHUB_WORKSPACE/artifacts" -maxdepth 1 -type f \
+            \( -name '*.bin' -o -name '*.uf2' -o -name '*.hex' -o -name '*.zip' -o -name '*.json' \) \
+            -exec cp {} "$STAGING_DIR/" \;
+
+          python <<'PY'
+          import json
+          import os
+          import re
+
+          version = os.environ["VERSION"]
+          staging_dir = os.path.join(os.environ["GITHUB_WORKSPACE"], "staging", f"firmware-{version}")
+          release_manifest_path = os.path.join(staging_dir, f"firmware-{version}.json")
+
+          boards = set()
+          for name in os.listdir(staging_dir):
+            if not re.match(rf"^firmware-(.+)-{re.escape(version)}\.(bin|uf2|hex|zip|json)$", name):
+              continue
+            board = re.sub(rf"^firmware-(.+)-{re.escape(version)}\.(bin|uf2|hex|zip|json)$", r"\1", name)
+            if board:
+              boards.add(board)
+
+          manifest = {
+            "version": version,
+            "targets": [{"board": board, "platform": "unknown"} for board in sorted(boards)],
+          }
+
+          with open(release_manifest_path, "w", encoding="utf-8") as handle:
+            json.dump(manifest, handle, indent=2)
+            handle.write("\n")
+          PY
+
+          rm -rf "$PAGES_DIR/$RELEASE_DIR"
+          mkdir -p "$PAGES_DIR/$RELEASE_DIR"
+          cp -R "$STAGING_DIR/." "$PAGES_DIR/$RELEASE_DIR/"
+          cp "$PAGES_DIR/$RELEASE_DIR/firmware-$VERSION.json" "$ROOT_MANIFEST"
+
+          rm -f "$ROOT_ZIP"
+          (
+            cd "$PAGES_DIR"
+            zip -rq "firmware-$VERSION.zip" "$RELEASE_DIR"
+          )
+
+      - name: Commit and push
+        shell: bash
         run: |
           cd firmware-pages
-          rm -rf $VERSION || true
-          mkdir -p $VERSION
-          cp ../firmware/* $VERSION/ 2>/dev/null || true
-          zip -r $VERSION.zip $VERSION
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          git add -A
-          git diff --cached --stat || echo "nothing to commit"
-
-      - name: Push
-        uses: ad-m/github-push-action@master
-        with:
-          repository: baymesh/bayme.sh-firmware-pages
-          token: ${{ secrets.GH_TOKEN }}
-          directory: firmware-pages
-          force: true
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add "firmware-$VERSION" "firmware-$VERSION.json" "firmware-$VERSION.zip"
+          git diff --cached --quiet && exit 0
+          git commit -m "Publish firmware $VERSION"
+          git push origin gh-pages
