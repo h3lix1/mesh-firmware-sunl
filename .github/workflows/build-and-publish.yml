@@ -244,14 +244,15 @@ jobs:
           cp "$PAGES_DIR/$RELEASE_DIR/firmware-$VERSION.json" "$ROOT_MANIFEST"
 
           # Write latest.json so the flasher can always find the newest version
-          python -c "
-import json, os
-version = os.environ['VERSION']
-latest = {'version': version}
-with open('$PAGES_DIR/latest.json', 'w') as f:
-    json.dump(latest, f, indent=2)
-    f.write('\n')
-"
+          python <<'PY'
+          import json, os
+          version = os.environ['VERSION']
+          pages_dir = os.path.join(os.environ['GITHUB_WORKSPACE'], 'firmware-pages')
+          latest = {'version': version}
+          with open(os.path.join(pages_dir, 'latest.json'), 'w') as f:
+              json.dump(latest, f, indent=2)
+              f.write('\n')
+          PY
 
           rm -f "$ROOT_ZIP"
           (
