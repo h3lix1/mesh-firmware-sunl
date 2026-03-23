@@ -145,6 +145,8 @@ jobs:
 
   publish:
     needs: build
+    # Run even if some boards failed (IRAM overflow, missing tools) as long as build wasn't skipped/cancelled
+    if: ${{ !cancelled() && needs.build.result != 'skipped' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -163,6 +165,16 @@ jobs:
           pattern: release-*
           path: artifacts
           merge-multiple: true
+
+      - name: Verify artifacts
+        shell: bash
+        run: |
+          count=$(find artifacts -maxdepth 1 -type f \( -name '*.bin' -o -name '*.uf2' -o -name '*.hex' \) | wc -l)
+          echo "Found $count firmware artifacts"
+          if [ "$count" -eq 0 ]; then
+            echo "No firmware artifacts found — all boards failed to build. Aborting publish."
+            exit 1
+          fi
 
       - name: Checkout firmware-pages
         uses: actions/checkout@v6
