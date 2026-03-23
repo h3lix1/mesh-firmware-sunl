@@ -10,6 +10,7 @@
 #include "main.h"
 #include "mesh-pb-constants.h"
 #include "meshUtils.h"
+#include "modules/NodeInfoModule.h"
 #include "modules/RoutingModule.h"
 #if HAS_TRAFFIC_MANAGEMENT
 #include "modules/TrafficManagementModule.h"
@@ -88,10 +89,8 @@ bool Router::shouldDecrementHopLimit(const meshtastic_MeshPacket *p)
         return true; // Always decrement on first hop
     }
 
-    // Check if both local device and previous relay are routers (including CLIENT_BASE)
-    bool localIsRouter =
-        IS_ONE_OF(config.device.role, meshtastic_Config_DeviceConfig_Role_ROUTER, meshtastic_Config_DeviceConfig_Role_ROUTER_LATE,
-                  meshtastic_Config_DeviceConfig_Role_CLIENT_BASE);
+    // Check if local device is a router
+    bool localIsRouter = (config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER);
 
     // If local device isn't a router, always decrement
     if (!localIsRouter) {
@@ -128,16 +127,15 @@ bool Router::shouldDecrementHopLimit(const meshtastic_MeshPacket *p)
         if (!node->has_user)
             continue;
 
-        // Check 3: role check (moderate cost - multiple comparisons)
-        if (!IS_ONE_OF(node->user.role, meshtastic_Config_DeviceConfig_Role_ROUTER,
-                       meshtastic_Config_DeviceConfig_Role_ROUTER_LATE, meshtastic_Config_DeviceConfig_Role_CLIENT_BASE)) {
+        // Check 3: role check (moderate cost)
+        if (node->user.role != meshtastic_Config_DeviceConfig_Role_ROUTER) {
             continue;
         }
 
-        // Check 4: last byte extraction and comparison (most expensive)
-        if (nodeDB->getLastByteOfNodeNum(node->num) == p->relay_node) {
+        // Check 4: full node ID comparison
+        if (node->num == p->relay_node) {
             // Found a favorite router match
-            LOG_DEBUG("Identified favorite relay router 0x%x from last byte 0x%x", node->num, p->relay_node);
+            LOG_DEBUG("Identified favorite relay router 0x%x", node->num);
             return false; // Don't decrement hop_limit
         }
     }
@@ -158,7 +156,20 @@ int32_t Router::runOnce()
         perhapsHandleReceived(mp);
     }
 
-    // LOG_DEBUG("Sleep forever!");
+    // Handle PKI retry timeout: NAK the queued packet if key never arrived
+    if (pkiRetryPacket != nullptr) {
+        uint32_t elapsed = millis() - pkiRetryQueued;
+        if (elapsed >= PKI_RETRY_TIMEOUT_MS) {
+            LOG_WARN("PKI retry timed out for 0x%08x, sending NAK", pkiRetryDest);
+            meshtastic_MeshPacket *retry = pkiRetryPacket;
+            pkiRetryPacket = nullptr;
+            pkiRetryDest = 0;
+            abortSendAndNak(meshtastic_Routing_Error_PKI_SEND_FAIL_PUBLIC_KEY, retry);
+        } else {
+            return PKI_RETRY_TIMEOUT_MS - elapsed; // Wake up when timeout fires
+        }
+    }
+
     return INT32_MAX; // Wait a long time - until we get woken for the message queue
 }
 
@@ -212,7 +223,8 @@ meshtastic_MeshPacket *Router::allocForSending()
     p->which_payload_variant = meshtastic_MeshPacket_decoded_tag; // Assume payload is decoded at start.
     p->from = nodeDB->getNodeNum();
     p->to = NODENUM_BROADCAST;
-    p->hop_limit = Default::getConfiguredOrDefaultHopLimit(config.lora.hop_limit);
+    // Broadcast packets use the broadcast hop limit; will be overridden by caller for directed messages
+    p->hop_limit = Default::getConfiguredOrDefaultBroadcastHopLimit(config.lora.broadcast_hop_limit);
     p->id = generatePacketId();
     p->rx_time =
         getValidTime(RTCQualityFromNet); // Just in case we process the packet locally - make sure it has a valid timestamp
@@ -290,6 +302,14 @@ ErrorCode Router::sendLocal(meshtastic_MeshPacket *p, RxSource src)
         if (src == RX_SRC_USER && p->want_ack && p->hop_limit == 0) {
             p->hop_limit = Default::getConfiguredOrDefaultHopLimit(config.lora.hop_limit);
         }
+        // Directed (unicast) packets always use the full hop limit; broadcast packets use the smaller broadcast limit.
+        // allocForSending sets the broadcast default, so upgrade directed packets here.
+        if (!isBroadcast(p->to)) {
+            uint8_t bcastLimit = Default::getConfiguredOrDefaultBroadcastHopLimit(config.lora.broadcast_hop_limit);
+            if (p->hop_limit <= bcastLimit) {
+                p->hop_limit = Default::getConfiguredOrDefaultHopLimit(config.lora.hop_limit);
+            }
+        }
 
         return send(p);
     }
@@ -346,15 +366,20 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
     // assert(!nakId); // I don't think we ever send 0hop naks over the wire (other than to the phone), test that assumption with
     // assert
 
-    // Never set the want_ack flag on broadcast packets sent over the air.
-    if (isBroadcast(p->to))
+    // Never set want_ack or want_response on broadcast packets — broadcast ACK/response is deprecated.
+    if (isBroadcast(p->to)) {
         p->want_ack = false;
+        if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
+            p->decoded.want_response = false;
+            p->decoded.bitfield &= ~BITFIELD_WANT_RESPONSE_MASK;
+        }
+    }
 
     // Up until this point we might have been using 0 for the from address (if it started with the phone), but when we send over
     // the lora we need to make sure we have replaced it with our local address
     p->from = getFrom(p);
 
-    p->relay_node = nodeDB->getLastByteOfNodeNum(getNodeNum()); // set the relayer to us
+    p->relay_node = getNodeNum(); // set the relayer to us (full node ID)
     // If we are the original transmitter, set the hop limit with which we start
     if (isFromUs(p))
         p->hop_start = p->hop_limit;
@@ -378,6 +403,30 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
 
         auto encodeResult = perhapsEncode(p);
         if (encodeResult != meshtastic_Routing_Error_NONE) {
+#if !(MESHTASTIC_EXCLUDE_PKI)
+            // On the first PKI key-miss, save the packet and request a NodeInfo
+            // exchange so the destination can share their public key.  Only NAK
+            // after the second consecutive failure for the same destination.
+            if (encodeResult == meshtastic_Routing_Error_PKI_SEND_FAIL_PUBLIC_KEY && pkiRetryPacket == nullptr) {
+                pkiRetryPacket = p_decoded; // take ownership — do NOT release p_decoded
+                pkiRetryDest = p->to;
+                pkiRetryQueued = millis();
+                p->channel = 0;
+                packetPool.release(p);
+                // Send our NodeInfo to the destination with want_response so they reply
+                // with their NodeInfo (and public key).
+                nodeInfoModule->sendOurNodeInfo(pkiRetryDest, true, chIndex, false, true);
+                LOG_INFO("PKI key unknown for 0x%08x — queued DM, requested NodeInfo exchange", pkiRetryDest);
+                setReceivedMessage(); // ensure runOnce wakes for timeout tracking
+                return meshtastic_Routing_Error_NONE;
+            }
+            // Second attempt for same dest (or already have a pending retry): NAK now
+            if (encodeResult == meshtastic_Routing_Error_PKI_SEND_FAIL_PUBLIC_KEY && pkiRetryPacket != nullptr) {
+                packetPool.release(pkiRetryPacket);
+                pkiRetryPacket = nullptr;
+                pkiRetryDest = 0;
+            }
+#endif
             packetPool.release(p_decoded);
             p->channel = 0; // Reset the channel to 0, so we don't use the failing hash again
             abortSendAndNak(encodeResult, p);
@@ -407,7 +456,7 @@ bool Router::cancelSending(NodeNum from, PacketId id)
 {
     if (iface && iface->cancelSending(from, id)) {
         // We are not a relayer of this packet anymore
-        removeRelayer(nodeDB->getLastByteOfNodeNum(nodeDB->getNodeNum()), id, from);
+        removeRelayer(nodeDB->getNodeNum(), id, from);
         return true;
     }
     return false;
@@ -834,6 +883,22 @@ void Router::handleReceived(meshtastic_MeshPacket *p, RxSource src)
 
     packetPool.release(p_encrypted); // Release the encrypted packet
     p_encrypted = nullptr;
+
+#if !(MESHTASTIC_EXCLUDE_PKI)
+    // If we have a DM queued waiting for this sender's public key, retry it now
+    // that NodeDB has been updated with their NodeInfo.
+    if (!skipHandle && pkiRetryPacket != nullptr && p->from == pkiRetryDest &&
+        p->which_payload_variant == meshtastic_MeshPacket_decoded_tag && p->decoded.portnum == meshtastic_PortNum_NODEINFO_APP) {
+        meshtastic_NodeInfoLite *node = nodeDB->getMeshNode(pkiRetryDest);
+        if (node != nullptr && node->user.public_key.size == 32) {
+            LOG_INFO("Got NodeInfo with key for 0x%08x — retrying queued DM", pkiRetryDest);
+            meshtastic_MeshPacket *retry = pkiRetryPacket;
+            pkiRetryPacket = nullptr;
+            pkiRetryDest = 0;
+            sendLocal(retry);
+        }
+    }
+#endif
 }
 
 void Router::perhapsHandleReceived(meshtastic_MeshPacket *p)

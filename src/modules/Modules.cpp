@@ -37,6 +37,7 @@
 #if !MESHTASTIC_EXCLUDE_POWERSTRESS
 #include "modules/PowerStressModule.h"
 #endif
+#include "modules/MeshControlModule.h"
 #include "modules/RoutingModule.h"
 #if HAS_TRAFFIC_MANAGEMENT && !MESHTASTIC_EXCLUDE_TRAFFIC_MANAGEMENT
 #include "modules/TrafficManagementModule.h"
@@ -134,6 +135,7 @@ void setupModules()
 #if !MESHTASTIC_EXCLUDE_ADMIN
     adminModule = new AdminModule();
 #endif
+    meshControlModule = new MeshControlModule();
 #if !MESHTASTIC_EXCLUDE_NODEINFO
     nodeInfoModule = new NodeInfoModule();
 #endif
@@ -160,10 +162,7 @@ void setupModules()
     }
 #endif
 #if !MESHTASTIC_EXCLUDE_ATAK
-    if (config.device.role == meshtastic_Config_DeviceConfig_Role_TAK ||
-        config.device.role == meshtastic_Config_DeviceConfig_Role_TAK_TRACKER) {
-        atakPluginModule = new AtakPluginModule();
-    }
+    atakPluginModule = new AtakPluginModule();
 #endif
 #if !MESHTASTIC_EXCLUDE_PKI
     keyVerificationModule = new KeyVerificationModule();

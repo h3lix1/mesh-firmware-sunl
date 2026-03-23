@@ -327,6 +327,15 @@ typedef enum _meshtastic_Config_LoRaConfig_FEM_LNA_Mode {
     meshtastic_Config_LoRaConfig_FEM_LNA_Mode_NOT_PRESENT = 2
 } meshtastic_Config_LoRaConfig_FEM_LNA_Mode;
 
+typedef enum _meshtastic_Config_MeshControlConfig_AcceptPolicy {
+    /* Reject all mesh control packets (default - opt-in required). */
+    meshtastic_Config_MeshControlConfig_AcceptPolicy_DISABLED = 0,
+    /* Deliver a ClientNotification to the connected app and wait for explicit user approval. */
+    meshtastic_Config_MeshControlConfig_AcceptPolicy_PROMPT = 1,
+    /* Automatically apply validated settings without user interaction. */
+    meshtastic_Config_MeshControlConfig_AcceptPolicy_AUTO = 2
+} meshtastic_Config_MeshControlConfig_AcceptPolicy;
+
 typedef enum _meshtastic_Config_BluetoothConfig_PairingMode {
     /* Device generates a random PIN that will be shown on the screen of the device for pairing */
     meshtastic_Config_BluetoothConfig_PairingMode_RANDOM_PIN = 0,
@@ -370,6 +379,8 @@ typedef struct _meshtastic_Config_DeviceConfig {
     /* Controls buzzer behavior for audio feedback
  Defaults to ENABLED */
     meshtastic_Config_DeviceConfig_BuzzerMode buzzer_mode;
+    /* Baymesh: Default relay node for direct messages. 0 = disabled. */
+    uint32_t dm_relay_node;
 } meshtastic_Config_DeviceConfig;
 
 /* Position Config */
@@ -579,6 +590,8 @@ typedef struct _meshtastic_Config_LoRaConfig {
     float override_frequency;
     /* If true, disable the build-in PA FAN using pin define in RF95_FAN_EN. */
     bool pa_fan_disabled;
+    /* Baymesh: Override broadcast hop limit (0 = use default). Set via MeshControl. */
+    uint32_t broadcast_hop_limit;
     /* For testing it is useful sometimes to force a node to never listen to
  particular other nodes (simulating radio out of range). All nodenums listed
  in ignore_incoming will have packets they send dropped on receive (by router.cpp) */
@@ -631,6 +644,26 @@ typedef struct _meshtastic_Config_SessionkeyConfig {
     char dummy_field;
 } meshtastic_Config_SessionkeyConfig;
 
+typedef PB_BYTES_ARRAY_T(32) meshtastic_Config_MeshControlConfig_control_key_t;
+/* Baymesh: Mesh Control node configuration. Controls how a node responds to signed MeshControl packets. */
+typedef struct _meshtastic_Config_MeshControlConfig {
+    /* 32-byte shared key used to authenticate incoming mesh control packets. */
+    meshtastic_Config_MeshControlConfig_control_key_t control_key;
+    meshtastic_Config_MeshControlConfig_AcceptPolicy accept_policy;
+    /* Minimum seconds between two accepted control packets. */
+    uint32_t min_interval_secs;
+    /* Allow mesh control to modify LoRa / radio parameters. */
+    bool allow_lora_config;
+    /* Allow mesh control to modify hop limits. */
+    bool allow_hop_limits;
+    /* Allow mesh control to modify position broadcast interval. */
+    bool allow_position_interval;
+    /* Allow mesh control to modify telemetry broadcast interval. */
+    bool allow_telemetry_interval;
+    /* Allow mesh control to modify node-info broadcast interval. */
+    bool allow_node_info_interval;
+} meshtastic_Config_MeshControlConfig;
+
 typedef struct _meshtastic_Config {
     pb_size_t which_payload_variant;
     union {
@@ -644,6 +677,7 @@ typedef struct _meshtastic_Config {
         meshtastic_Config_SecurityConfig security;
         meshtastic_Config_SessionkeyConfig sessionkey;
         meshtastic_DeviceUIConfig device_ui;
+        meshtastic_Config_MeshControlConfig mesh_control;
     } payload_variant;
 } meshtastic_Config;
 
@@ -717,6 +751,10 @@ extern "C" {
 #define _meshtastic_Config_BluetoothConfig_PairingMode_MAX meshtastic_Config_BluetoothConfig_PairingMode_NO_PIN
 #define _meshtastic_Config_BluetoothConfig_PairingMode_ARRAYSIZE ((meshtastic_Config_BluetoothConfig_PairingMode)(meshtastic_Config_BluetoothConfig_PairingMode_NO_PIN+1))
 
+#define _meshtastic_Config_MeshControlConfig_AcceptPolicy_MIN meshtastic_Config_MeshControlConfig_AcceptPolicy_DISABLED
+#define _meshtastic_Config_MeshControlConfig_AcceptPolicy_MAX meshtastic_Config_MeshControlConfig_AcceptPolicy_AUTO
+#define _meshtastic_Config_MeshControlConfig_AcceptPolicy_ARRAYSIZE ((meshtastic_Config_MeshControlConfig_AcceptPolicy)(meshtastic_Config_MeshControlConfig_AcceptPolicy_AUTO+1))
+
 
 #define meshtastic_Config_DeviceConfig_role_ENUMTYPE meshtastic_Config_DeviceConfig_Role
 #define meshtastic_Config_DeviceConfig_rebroadcast_mode_ENUMTYPE meshtastic_Config_DeviceConfig_RebroadcastMode
@@ -745,27 +783,29 @@ extern "C" {
 
 /* Initializer values for message structs */
 #define meshtastic_Config_init_default           {0, {meshtastic_Config_DeviceConfig_init_default}}
-#define meshtastic_Config_DeviceConfig_init_default {_meshtastic_Config_DeviceConfig_Role_MIN, 0, 0, 0, _meshtastic_Config_DeviceConfig_RebroadcastMode_MIN, 0, 0, 0, 0, "", 0, _meshtastic_Config_DeviceConfig_BuzzerMode_MIN}
+#define meshtastic_Config_DeviceConfig_init_default {_meshtastic_Config_DeviceConfig_Role_MIN, 0, 0, 0, _meshtastic_Config_DeviceConfig_RebroadcastMode_MIN, 0, 0, 0, 0, "", 0, _meshtastic_Config_DeviceConfig_BuzzerMode_MIN, 0}
 #define meshtastic_Config_PositionConfig_init_default {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, _meshtastic_Config_PositionConfig_GpsMode_MIN}
 #define meshtastic_Config_PowerConfig_init_default {0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define meshtastic_Config_NetworkConfig_init_default {0, "", "", "", 0, _meshtastic_Config_NetworkConfig_AddressMode_MIN, false, meshtastic_Config_NetworkConfig_IpV4Config_init_default, "", 0, 0}
 #define meshtastic_Config_NetworkConfig_IpV4Config_init_default {0, 0, 0, 0}
 #define meshtastic_Config_DisplayConfig_init_default {0, _meshtastic_Config_DisplayConfig_DeprecatedGpsCoordinateFormat_MIN, 0, 0, 0, _meshtastic_Config_DisplayConfig_DisplayUnits_MIN, _meshtastic_Config_DisplayConfig_OledType_MIN, _meshtastic_Config_DisplayConfig_DisplayMode_MIN, 0, 0, _meshtastic_Config_DisplayConfig_CompassOrientation_MIN, 0, 0, 0}
-#define meshtastic_Config_LoRaConfig_init_default {0, _meshtastic_Config_LoRaConfig_ModemPreset_MIN, 0, 0, 0, 0, _meshtastic_Config_LoRaConfig_RegionCode_MIN, 0, 0, 0, 0, 0, 0, 0, 0, 0, {0, 0, 0}, 0, 0, _meshtastic_Config_LoRaConfig_FEM_LNA_Mode_MIN}
+#define meshtastic_Config_LoRaConfig_init_default {0, _meshtastic_Config_LoRaConfig_ModemPreset_MIN, 0, 0, 0, 0, _meshtastic_Config_LoRaConfig_RegionCode_MIN, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, {0, 0, 0}, 0, 0, _meshtastic_Config_LoRaConfig_FEM_LNA_Mode_MIN}
 #define meshtastic_Config_BluetoothConfig_init_default {0, _meshtastic_Config_BluetoothConfig_PairingMode_MIN, 0}
 #define meshtastic_Config_SecurityConfig_init_default {{0, {0}}, {0, {0}}, 0, {{0, {0}}, {0, {0}}, {0, {0}}}, 0, 0, 0, 0}
 #define meshtastic_Config_SessionkeyConfig_init_default {0}
 #define meshtastic_Config_init_zero              {0, {meshtastic_Config_DeviceConfig_init_zero}}
-#define meshtastic_Config_DeviceConfig_init_zero {_meshtastic_Config_DeviceConfig_Role_MIN, 0, 0, 0, _meshtastic_Config_DeviceConfig_RebroadcastMode_MIN, 0, 0, 0, 0, "", 0, _meshtastic_Config_DeviceConfig_BuzzerMode_MIN}
+#define meshtastic_Config_DeviceConfig_init_zero {_meshtastic_Config_DeviceConfig_Role_MIN, 0, 0, 0, _meshtastic_Config_DeviceConfig_RebroadcastMode_MIN, 0, 0, 0, 0, "", 0, _meshtastic_Config_DeviceConfig_BuzzerMode_MIN, 0}
 #define meshtastic_Config_PositionConfig_init_zero {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, _meshtastic_Config_PositionConfig_GpsMode_MIN}
 #define meshtastic_Config_PowerConfig_init_zero  {0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define meshtastic_Config_NetworkConfig_init_zero {0, "", "", "", 0, _meshtastic_Config_NetworkConfig_AddressMode_MIN, false, meshtastic_Config_NetworkConfig_IpV4Config_init_zero, "", 0, 0}
 #define meshtastic_Config_NetworkConfig_IpV4Config_init_zero {0, 0, 0, 0}
 #define meshtastic_Config_DisplayConfig_init_zero {0, _meshtastic_Config_DisplayConfig_DeprecatedGpsCoordinateFormat_MIN, 0, 0, 0, _meshtastic_Config_DisplayConfig_DisplayUnits_MIN, _meshtastic_Config_DisplayConfig_OledType_MIN, _meshtastic_Config_DisplayConfig_DisplayMode_MIN, 0, 0, _meshtastic_Config_DisplayConfig_CompassOrientation_MIN, 0, 0, 0}
-#define meshtastic_Config_LoRaConfig_init_zero   {0, _meshtastic_Config_LoRaConfig_ModemPreset_MIN, 0, 0, 0, 0, _meshtastic_Config_LoRaConfig_RegionCode_MIN, 0, 0, 0, 0, 0, 0, 0, 0, 0, {0, 0, 0}, 0, 0, _meshtastic_Config_LoRaConfig_FEM_LNA_Mode_MIN}
+#define meshtastic_Config_LoRaConfig_init_zero   {0, _meshtastic_Config_LoRaConfig_ModemPreset_MIN, 0, 0, 0, 0, _meshtastic_Config_LoRaConfig_RegionCode_MIN, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, {0, 0, 0}, 0, 0, _meshtastic_Config_LoRaConfig_FEM_LNA_Mode_MIN}
 #define meshtastic_Config_BluetoothConfig_init_zero {0, _meshtastic_Config_BluetoothConfig_PairingMode_MIN, 0}
 #define meshtastic_Config_SecurityConfig_init_zero {{0, {0}}, {0, {0}}, 0, {{0, {0}}, {0, {0}}, {0, {0}}}, 0, 0, 0, 0}
 #define meshtastic_Config_SessionkeyConfig_init_zero {0}
+#define meshtastic_Config_MeshControlConfig_init_default {{0, {0}}, _meshtastic_Config_MeshControlConfig_AcceptPolicy_MIN, 0, 0, 0, 0, 0, 0}
+#define meshtastic_Config_MeshControlConfig_init_zero    {{0, {0}}, _meshtastic_Config_MeshControlConfig_AcceptPolicy_MIN, 0, 0, 0, 0, 0, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define meshtastic_Config_DeviceConfig_role_tag  1
@@ -780,6 +820,7 @@ extern "C" {
 #define meshtastic_Config_DeviceConfig_tzdef_tag 11
 #define meshtastic_Config_DeviceConfig_led_heartbeat_disabled_tag 12
 #define meshtastic_Config_DeviceConfig_buzzer_mode_tag 13
+#define meshtastic_Config_DeviceConfig_dm_relay_node_tag 14
 #define meshtastic_Config_PositionConfig_position_broadcast_secs_tag 1
 #define meshtastic_Config_PositionConfig_position_broadcast_smart_enabled_tag 2
 #define meshtastic_Config_PositionConfig_fixed_position_tag 3
@@ -845,6 +886,7 @@ extern "C" {
 #define meshtastic_Config_LoRaConfig_sx126x_rx_boosted_gain_tag 13
 #define meshtastic_Config_LoRaConfig_override_frequency_tag 14
 #define meshtastic_Config_LoRaConfig_pa_fan_disabled_tag 15
+#define meshtastic_Config_LoRaConfig_broadcast_hop_limit_tag 16
 #define meshtastic_Config_LoRaConfig_ignore_incoming_tag 103
 #define meshtastic_Config_LoRaConfig_ignore_mqtt_tag 104
 #define meshtastic_Config_LoRaConfig_config_ok_to_mqtt_tag 105
@@ -869,6 +911,16 @@ extern "C" {
 #define meshtastic_Config_security_tag           8
 #define meshtastic_Config_sessionkey_tag         9
 #define meshtastic_Config_device_ui_tag          10
+#define meshtastic_Config_mesh_control_tag       11
+#define meshtastic_Config_MeshControlConfig_control_key_tag 1
+#define meshtastic_Config_MeshControlConfig_accept_policy_tag 2
+#define meshtastic_Config_MeshControlConfig_min_interval_secs_tag 3
+#define meshtastic_Config_MeshControlConfig_allow_lora_config_tag 4
+#define meshtastic_Config_MeshControlConfig_allow_hop_limits_tag 5
+#define meshtastic_Config_MeshControlConfig_allow_position_interval_tag 6
+#define meshtastic_Config_MeshControlConfig_allow_telemetry_interval_tag 7
+#define meshtastic_Config_MeshControlConfig_allow_node_info_interval_tag 8
+#define meshtastic_Config_MeshControlConfig_accept_policy_ENUMTYPE meshtastic_Config_MeshControlConfig_AcceptPolicy
 
 /* Struct field encoding specification for nanopb */
 #define meshtastic_Config_FIELDLIST(X, a) \
@@ -881,7 +933,8 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,lora,payload_variant.lora), 
 X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,bluetooth,payload_variant.bluetooth),   7) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,security,payload_variant.security),   8) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,sessionkey,payload_variant.sessionkey),   9) \
-X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,device_ui,payload_variant.device_ui),  10)
+X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,device_ui,payload_variant.device_ui),  10) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,mesh_control,payload_variant.mesh_control),  11)
 #define meshtastic_Config_CALLBACK NULL
 #define meshtastic_Config_DEFAULT NULL
 #define meshtastic_Config_payload_variant_device_MSGTYPE meshtastic_Config_DeviceConfig
@@ -894,6 +947,19 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,device_ui,payload_variant.de
 #define meshtastic_Config_payload_variant_security_MSGTYPE meshtastic_Config_SecurityConfig
 #define meshtastic_Config_payload_variant_sessionkey_MSGTYPE meshtastic_Config_SessionkeyConfig
 #define meshtastic_Config_payload_variant_device_ui_MSGTYPE meshtastic_DeviceUIConfig
+#define meshtastic_Config_payload_variant_mesh_control_MSGTYPE meshtastic_Config_MeshControlConfig
+
+#define meshtastic_Config_MeshControlConfig_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, BYTES,    control_key,       1) \
+X(a, STATIC,   SINGULAR, UENUM,    accept_policy,     2) \
+X(a, STATIC,   SINGULAR, UINT32,   min_interval_secs, 3) \
+X(a, STATIC,   SINGULAR, BOOL,     allow_lora_config, 4) \
+X(a, STATIC,   SINGULAR, BOOL,     allow_hop_limits,  5) \
+X(a, STATIC,   SINGULAR, BOOL,     allow_position_interval, 6) \
+X(a, STATIC,   SINGULAR, BOOL,     allow_telemetry_interval, 7) \
+X(a, STATIC,   SINGULAR, BOOL,     allow_node_info_interval, 8)
+#define meshtastic_Config_MeshControlConfig_CALLBACK NULL
+#define meshtastic_Config_MeshControlConfig_DEFAULT NULL
 
 #define meshtastic_Config_DeviceConfig_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UENUM,    role,              1) \
@@ -907,7 +973,8 @@ X(a, STATIC,   SINGULAR, BOOL,     is_managed,        9) \
 X(a, STATIC,   SINGULAR, BOOL,     disable_triple_click,  10) \
 X(a, STATIC,   SINGULAR, STRING,   tzdef,            11) \
 X(a, STATIC,   SINGULAR, BOOL,     led_heartbeat_disabled,  12) \
-X(a, STATIC,   SINGULAR, UENUM,    buzzer_mode,      13)
+X(a, STATIC,   SINGULAR, UENUM,    buzzer_mode,      13) \
+X(a, STATIC,   SINGULAR, FIXED32,  dm_relay_node,    14)
 #define meshtastic_Config_DeviceConfig_CALLBACK NULL
 #define meshtastic_Config_DeviceConfig_DEFAULT NULL
 
@@ -998,6 +1065,7 @@ X(a, STATIC,   SINGULAR, BOOL,     override_duty_cycle,  12) \
 X(a, STATIC,   SINGULAR, BOOL,     sx126x_rx_boosted_gain,  13) \
 X(a, STATIC,   SINGULAR, FLOAT,    override_frequency,  14) \
 X(a, STATIC,   SINGULAR, BOOL,     pa_fan_disabled,  15) \
+X(a, STATIC,   SINGULAR, UINT32,   broadcast_hop_limit,  16) \
 X(a, STATIC,   REPEATED, UINT32,   ignore_incoming, 103) \
 X(a, STATIC,   SINGULAR, BOOL,     ignore_mqtt,     104) \
 X(a, STATIC,   SINGULAR, BOOL,     config_ok_to_mqtt, 105) \
@@ -1039,6 +1107,7 @@ extern const pb_msgdesc_t meshtastic_Config_LoRaConfig_msg;
 extern const pb_msgdesc_t meshtastic_Config_BluetoothConfig_msg;
 extern const pb_msgdesc_t meshtastic_Config_SecurityConfig_msg;
 extern const pb_msgdesc_t meshtastic_Config_SessionkeyConfig_msg;
+extern const pb_msgdesc_t meshtastic_Config_MeshControlConfig_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
 #define meshtastic_Config_fields &meshtastic_Config_msg
@@ -1052,6 +1121,7 @@ extern const pb_msgdesc_t meshtastic_Config_SessionkeyConfig_msg;
 #define meshtastic_Config_BluetoothConfig_fields &meshtastic_Config_BluetoothConfig_msg
 #define meshtastic_Config_SecurityConfig_fields &meshtastic_Config_SecurityConfig_msg
 #define meshtastic_Config_SessionkeyConfig_fields &meshtastic_Config_SessionkeyConfig_msg
+#define meshtastic_Config_MeshControlConfig_fields &meshtastic_Config_MeshControlConfig_msg
 
 /* Maximum encoded size of messages (where known) */
 #define MESHTASTIC_MESHTASTIC_CONFIG_PB_H_MAX_SIZE meshtastic_Config_size

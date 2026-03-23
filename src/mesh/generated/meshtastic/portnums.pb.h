@@ -150,6 +150,8 @@ typedef enum _meshtastic_PortNum {
  arbitrary telemetry over meshtastic that is not covered by telemetry.proto
  ENCODING: CayenneLLP */
     meshtastic_PortNum_CAYENNE_APP = 77,
+    /* Baymesh: Mesh Control configuration packets. */
+    meshtastic_PortNum_MESH_CONTROL_APP = 78,
     /* GroupAlarm integration
  Used for transporting GroupAlarm-related messages between Meshtastic nodes
  and companion applications/services. */

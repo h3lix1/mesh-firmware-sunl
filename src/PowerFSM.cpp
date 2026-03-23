@@ -38,10 +38,7 @@ static bool isPowered()
     return true;
 #endif
 
-    bool isRouter = ((config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER ||
-                      config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER_LATE)
-                         ? 1
-                         : 0);
+    bool isRouter = (config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER ? 1 : 0);
 
     // If we are not a router and we already have AC power go to POWER state after init, otherwise go to ON
     // We assume routers might be powered all the time, but from a low current (solar) source
@@ -265,10 +262,7 @@ Fsm powerFSM(&stateBOOT);
 
 void PowerFSM_setup()
 {
-    bool isRouter = ((config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER ||
-                      config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER_LATE)
-                         ? 1
-                         : 0);
+    bool isRouter = (config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER ? 1 : 0);
     bool hasPower = isPowered();
 
     LOG_INFO("PowerFSM init, USB power=%d", hasPower ? 1 : 0);
@@ -378,7 +372,6 @@ void PowerFSM_setup()
 
 #if HAS_WIFI && !defined(MESHTASTIC_EXCLUDE_WIFI)
     bool isTrackerOrSensor = config.device.role == meshtastic_Config_DeviceConfig_Role_TRACKER ||
-                             config.device.role == meshtastic_Config_DeviceConfig_Role_TAK_TRACKER ||
                              config.device.role == meshtastic_Config_DeviceConfig_Role_SENSOR;
 
     if ((isRouter || config.power.is_power_saving) && !isWifiAvailable() && !isTrackerOrSensor) {

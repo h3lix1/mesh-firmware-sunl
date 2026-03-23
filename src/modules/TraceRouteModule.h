@@ -65,7 +65,7 @@ class TraceRouteModule : public ProtobufModule<meshtastic_RouteDiscovery>,
     void updateNextHops(const meshtastic_MeshPacket &p, meshtastic_RouteDiscovery *r);
 
     // Helper to update next-hop for a single node
-    void maybeSetNextHop(NodeNum target, uint8_t nextHopByte);
+    void maybeSetNextHop(NodeNum target, NodeNum nextHop);
 
     /* Call to print the route array of a RouteDiscovery message.
        Set origin to where the request came from.

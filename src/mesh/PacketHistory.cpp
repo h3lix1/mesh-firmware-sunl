@@ -69,8 +69,8 @@ bool PacketHistory::wasSeenRecently(const meshtastic_MeshPacket *p, bool withUpd
     r.next_hop = p->next_hop;
     setHighestHopLimit(r, p->hop_limit);
     bool weWillRelay = false;
-    uint8_t ourRelayID = nodeDB->getLastByteOfNodeNum(nodeDB->getNodeNum());
-    if (p->relay_node == ourRelayID) { // If the relay_node is us, store it
+    NodeNum ourNodeNum = nodeDB->getNodeNum();
+    if (p->relay_node == ourNodeNum) { // If the relay_node is us, store it
         weWillRelay = true;
         setOurTxHopLimit(r, p->hop_limit);
         r.relayed_by[0] = p->relay_node;
@@ -104,31 +104,31 @@ bool PacketHistory::wasSeenRecently(const meshtastic_MeshPacket *p, bool withUpd
             // before, it's a fallback to flooding. If we didn't already relay and the next-hop neither, we might need to handle
             // it now.
             if (found->sender != nodeDB->getNodeNum() && found->next_hop != NO_NEXT_HOP_PREFERENCE &&
-                found->next_hop != ourRelayID && p->next_hop == NO_NEXT_HOP_PREFERENCE && wasRelayer(p->relay_node, *found) &&
-                !wasRelayer(ourRelayID, *found) &&
+                found->next_hop != ourNodeNum && p->next_hop == NO_NEXT_HOP_PREFERENCE && wasRelayer(p->relay_node, *found) &&
+                !wasRelayer(ourNodeNum, *found) &&
                 !wasRelayer(
                     found->next_hop,
                     *found)) { // If we were not the next hop and the next hop is not us, and we are not relaying this packet
 #if VERBOSE_PACKET_HISTORY
                 LOG_DEBUG("Packet History - Was Seen Recently: f=%08x id=%08x nh=%02x rn=%02x oID=%02x, wasFbk=%d-set TRUE",
-                          p->from, p->id, p->next_hop, p->relay_node, ourRelayID, wasFallback ? *wasFallback : -1);
+                          p->from, p->id, p->next_hop, p->relay_node, ourNodeNum, wasFallback ? *wasFallback : -1);
 #endif
                 *wasFallback = true;
             } else {
                 // debug log only
 #if VERBOSE_PACKET_HISTORY
                 LOG_DEBUG("Packet History - Was Seen Recently: f=%08x id=%08x nh=%02x rn=%02x oID=%02x, wasFbk=%d-no change",
-                          p->from, p->id, p->next_hop, p->relay_node, ourRelayID, wasFallback ? *wasFallback : -1);
+                          p->from, p->id, p->next_hop, p->relay_node, ourNodeNum, wasFallback ? *wasFallback : -1);
 #endif
             }
         }
 
         // Check if we were the next hop for this packet
         if (weWereNextHop) {
-            *weWereNextHop = (found->next_hop == ourRelayID);
+            *weWereNextHop = (found->next_hop == ourNodeNum);
 #if VERBOSE_PACKET_HISTORY
             LOG_DEBUG("Packet History - Was Seen Recently: f=%08x id=%08x nh=%02x rn=%02x foundnh=%02x oID=%02x -> wWNH=%s",
-                      p->from, p->id, p->next_hop, p->relay_node, found->next_hop, ourRelayID, (*weWereNextHop) ? "YES" : "NO");
+                      p->from, p->id, p->next_hop, p->relay_node, found->next_hop, ourNodeNum, (*weWereNextHop) ? "YES" : "NO");
 #endif
         }
     }
@@ -143,7 +143,7 @@ bool PacketHistory::wasSeenRecently(const meshtastic_MeshPacket *p, bool withUpd
             // Only update the relayer if it heard us directly (meaning hopLimit is decreased by 1)
             uint8_t startIdx = weWillRelay ? 1 : 0;
             if (!weWillRelay) {
-                bool weWereRelayer = wasRelayer(ourRelayID, *found);
+                bool weWereRelayer = wasRelayer(ourNodeNum, *found);
                 // We were a relayer and the packet came in with a hop limit that is one less than when we sent it out
                 if (weWereRelayer && (p->hop_limit == getOurTxHopLimit(*found) || p->hop_limit == getOurTxHopLimit(*found) - 1)) {
                     r.relayed_by[0] = p->relay_node;
@@ -338,7 +338,7 @@ void PacketHistory::insert(const PacketRecord &r)
 
 /* Check if a certain node was a relayer of a packet in the history given an ID and sender
  * @return true if node was indeed a relayer, false if not */
-bool PacketHistory::wasRelayer(const uint8_t relayer, const uint32_t id, const NodeNum sender, bool *wasSole)
+bool PacketHistory::wasRelayer(const NodeNum relayer, const uint32_t id, const NodeNum sender, bool *wasSole)
 {
     if (!initOk()) {
         LOG_ERROR("PacketHistory - wasRelayer: NOT INITIALIZED!");
@@ -371,7 +371,7 @@ bool PacketHistory::wasRelayer(const uint8_t relayer, const uint32_t id, const N
 
 /* Check if a certain node was a relayer of a packet in the history given iterator
  * @return true if node was indeed a relayer, false if not */
-bool PacketHistory::wasRelayer(const uint8_t relayer, const PacketRecord &r, bool *wasSole)
+bool PacketHistory::wasRelayer(const NodeNum relayer, const PacketRecord &r, bool *wasSole)
 {
     bool found = false;
     bool other_present = false;
@@ -397,7 +397,7 @@ bool PacketHistory::wasRelayer(const uint8_t relayer, const PacketRecord &r, boo
 }
 
 // Remove a relayer from the list of relayers of a packet in the history given an ID and sender
-void PacketHistory::removeRelayer(const uint8_t relayer, const uint32_t id, const NodeNum sender)
+void PacketHistory::removeRelayer(const NodeNum relayer, const uint32_t id, const NodeNum sender)
 {
     if (!initOk()) {
         LOG_ERROR("Packet History - remove Relayer: NOT INITIALIZED!");
@@ -438,23 +438,24 @@ void PacketHistory::removeRelayer(const uint8_t relayer, const uint32_t id, cons
 #endif
 }
 
-// Getters and setters for hop limit fields packed in hop_limit
+// Getters and setters for hop limit fields packed in hop_limit (uint16_t)
 inline uint8_t PacketHistory::getHighestHopLimit(const PacketRecord &r)
 {
-    return r.hop_limit & HOP_LIMIT_HIGHEST_MASK;
+    return (uint8_t)(r.hop_limit & HOP_LIMIT_HIGHEST_MASK);
 }
 
 inline void PacketHistory::setHighestHopLimit(PacketRecord &r, uint8_t hopLimit)
 {
-    r.hop_limit = (r.hop_limit & ~HOP_LIMIT_HIGHEST_MASK) | (hopLimit & HOP_LIMIT_HIGHEST_MASK);
+    r.hop_limit = (uint16_t)((r.hop_limit & ~HOP_LIMIT_HIGHEST_MASK) | (hopLimit & HOP_LIMIT_HIGHEST_MASK));
 }
 
 inline uint8_t PacketHistory::getOurTxHopLimit(const PacketRecord &r)
 {
-    return (r.hop_limit & HOP_LIMIT_OUR_TX_MASK) >> HOP_LIMIT_OUR_TX_SHIFT;
+    return (uint8_t)((r.hop_limit & HOP_LIMIT_OUR_TX_MASK) >> HOP_LIMIT_OUR_TX_SHIFT);
 }
 
 inline void PacketHistory::setOurTxHopLimit(PacketRecord &r, uint8_t hopLimit)
 {
-    r.hop_limit = (r.hop_limit & ~HOP_LIMIT_OUR_TX_MASK) | ((hopLimit << HOP_LIMIT_OUR_TX_SHIFT) & HOP_LIMIT_OUR_TX_MASK);
+    r.hop_limit = (uint16_t)((r.hop_limit & ~HOP_LIMIT_OUR_TX_MASK) |
+                             (((uint16_t)hopLimit << HOP_LIMIT_OUR_TX_SHIFT) & HOP_LIMIT_OUR_TX_MASK));
 }

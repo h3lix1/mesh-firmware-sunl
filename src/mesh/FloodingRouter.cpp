@@ -19,8 +19,8 @@ FloodingRouter::FloodingRouter() {}
 ErrorCode FloodingRouter::send(meshtastic_MeshPacket *p)
 {
     // Add any messages _we_ send to the seen message list (so we will ignore all retransmissions we see)
-    p->relay_node = nodeDB->getLastByteOfNodeNum(getNodeNum()); // First set the relayer to us
-    wasSeenRecently(p);                                         // FIXME, move this to a sniffSent method
+    p->relay_node = getNodeNum(); // First set the relayer to us (full node ID)
+    wasSeenRecently(p);           // FIXME, move this to a sniffSent method
 
     return Router::send(p);
 }
@@ -117,21 +117,13 @@ void FloodingRouter::reprocessPacket(const meshtastic_MeshPacket *p)
 
 bool FloodingRouter::roleAllowsCancelingDupe(const meshtastic_MeshPacket *p)
 {
-    if (config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER ||
-        config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER_LATE) {
-        // ROUTER, ROUTER_LATE should never cancel relaying a packet (i.e. we should always rebroadcast),
+    if (config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER) {
+        // ROUTER should never cancel relaying a packet (i.e. we should always rebroadcast),
         // even if we've heard another station rebroadcast it already.
         return false;
     }
 
-    if (config.device.role == meshtastic_Config_DeviceConfig_Role_CLIENT_BASE) {
-        // CLIENT_BASE: if the packet is from or to a favorited node,
-        // we should act like a ROUTER and should never cancel a rebroadcast (i.e. we should always rebroadcast),
-        // even if we've heard another station rebroadcast it already.
-        return !nodeDB->isFromOrToFavoritedNode(*p);
-    }
-
-    // All other roles (such as CLIENT) should cancel a rebroadcast if they hear another station's rebroadcast.
+    // All other roles (CLIENT, TRACKER, SENSOR) should cancel a rebroadcast if they hear another station's rebroadcast.
     return true;
 }
 
@@ -143,19 +135,11 @@ void FloodingRouter::perhapsCancelDupe(const meshtastic_MeshPacket *p)
         if (Router::cancelSending(p->from, p->id))
             txRelayCanceled++;
     }
-    if (config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER_LATE && iface) {
-        iface->clampToLateRebroadcastWindow(getFrom(p), p->id);
-    }
-    if (config.device.role == meshtastic_Config_DeviceConfig_Role_CLIENT_BASE && iface && nodeDB &&
-        nodeDB->isFromOrToFavoritedNode(*p)) {
-        iface->clampToLateRebroadcastWindow(getFrom(p), p->id);
-    }
 }
 
 bool FloodingRouter::isRebroadcaster()
 {
-    return config.device.role != meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE &&
-           config.device.rebroadcast_mode != meshtastic_Config_DeviceConfig_RebroadcastMode_NONE;
+    return config.device.rebroadcast_mode != meshtastic_Config_DeviceConfig_RebroadcastMode_NONE;
 }
 
 void FloodingRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtastic_Routing *c)

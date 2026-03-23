@@ -18,6 +18,7 @@
 #include "main.h"
 #include "mesh/Default.h"
 #include "mesh/MeshTypes.h"
+#include "mesh/RadioLibInterface.h"
 #include "modules/AdminModule.h"
 #include "modules/CannedMessageModule.h"
 #include "modules/ExternalNotificationModule.h"
@@ -160,6 +161,14 @@ void menuHandler::LoraRegionPicker(uint32_t duration)
                 return;
             }
 
+            // Guard: without a reboot, reconfigure() applies the region directly.
+            // Reject LORA_24 on sub-GHz-only hardware — getRadio() used to catch this post-reboot.
+            if (selectedRegion == meshtastic_Config_LoRaConfig_RegionCode_LORA_24 &&
+                !(RadioLibInterface::instance && RadioLibInterface::instance->wideLora())) {
+                LOG_WARN("Radio hardware does not support 2.4 GHz; ignoring LORA_24 selection");
+                return;
+            }
+
             config.lora.region = selectedRegion;
             auto changes = SEGMENT_CONFIG;
 
@@ -181,7 +190,6 @@ void menuHandler::LoraRegionPicker(uint32_t duration)
             }
 
             service->reloadConfig(changes);
-            rebootAtMsec = (millis() + DEFAULT_REBOOT_SECONDS * 1000);
         });
 
     bannerOptions.durationMs = duration;
@@ -200,14 +208,8 @@ void menuHandler::LoraRegionPicker(uint32_t duration)
 
 void menuHandler::deviceRolePicker()
 {
-    static const char *optionsArray[] = {"Back", "Client", "Client Mute", "Lost and Found", "Tracker"};
-    enum optionsNumbers {
-        Back = 0,
-        devicerole_client = 1,
-        devicerole_clientmute = 2,
-        devicerole_lostandfound = 3,
-        devicerole_tracker = 4
-    };
+    static const char *optionsArray[] = {"Back", "Client", "Router", "Tracker", "Sensor"};
+    enum optionsNumbers { Back = 0, devicerole_client = 1, devicerole_router = 2, devicerole_tracker = 3, devicerole_sensor = 4 };
     BannerOverlayOptions bannerOptions;
     bannerOptions.message = "Device Role";
     bannerOptions.optionsArrayPtr = optionsArray;
@@ -219,12 +221,12 @@ void menuHandler::deviceRolePicker()
             return;
         } else if (selected == devicerole_client) {
             config.device.role = meshtastic_Config_DeviceConfig_Role_CLIENT;
-        } else if (selected == devicerole_clientmute) {
-            config.device.role = meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE;
-        } else if (selected == devicerole_lostandfound) {
-            config.device.role = meshtastic_Config_DeviceConfig_Role_LOST_AND_FOUND;
+        } else if (selected == devicerole_router) {
+            config.device.role = meshtastic_Config_DeviceConfig_Role_ROUTER;
         } else if (selected == devicerole_tracker) {
             config.device.role = meshtastic_Config_DeviceConfig_Role_TRACKER;
+        } else if (selected == devicerole_sensor) {
+            config.device.role = meshtastic_Config_DeviceConfig_Role_SENSOR;
         }
         service->reloadConfig(SEGMENT_CONFIG);
         rebootAtMsec = (millis() + DEFAULT_REBOOT_SECONDS * 1000);
@@ -300,7 +302,6 @@ void menuHandler::FrequencySlotPicker()
 
         config.lora.channel_num = selected;
         service->reloadConfig(SEGMENT_CONFIG);
-        rebootAtMsec = (millis() + DEFAULT_REBOOT_SECONDS * 1000);
     };
 
     screen->showOverlayBanner(bannerOptions);
@@ -339,7 +340,6 @@ void menuHandler::radioPresetPicker()
             config.lora.channel_num = 0;        // Reset to default channel for the preset
             config.lora.override_frequency = 0; // Clear any custom frequency
             service->reloadConfig(SEGMENT_CONFIG);
-            rebootAtMsec = (millis() + DEFAULT_REBOOT_SECONDS * 1000);
         });
 
     screen->showOverlayBanner(bannerOptions);

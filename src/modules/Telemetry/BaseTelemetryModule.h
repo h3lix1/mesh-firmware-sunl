@@ -9,7 +9,6 @@ class BaseTelemetryModule
     bool isSensorOrRouterRole() const
     {
         return config.device.role == meshtastic_Config_DeviceConfig_Role_SENSOR ||
-               config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER ||
-               config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER_LATE;
+               config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER;
     }
 };

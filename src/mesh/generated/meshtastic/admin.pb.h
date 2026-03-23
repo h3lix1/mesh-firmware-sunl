@@ -47,7 +47,9 @@ typedef enum _meshtastic_AdminMessage_ConfigType {
     /* Session key config */
     meshtastic_AdminMessage_ConfigType_SESSIONKEY_CONFIG = 8,
     /* device-ui config */
-    meshtastic_AdminMessage_ConfigType_DEVICEUI_CONFIG = 9
+    meshtastic_AdminMessage_ConfigType_DEVICEUI_CONFIG = 9,
+    /* Baymesh: Mesh Control node configuration. */
+    meshtastic_AdminMessage_ConfigType_MESH_CONTROL_CONFIG = 10
 } meshtastic_AdminMessage_ConfigType;
 
 /* TODO: REPLACE */
@@ -384,6 +386,8 @@ typedef struct _meshtastic_AdminMessage {
         meshtastic_AdminMessage_OTAEvent ota_request;
         /* Parameters and sensor configuration */
         meshtastic_SensorConfig sensor_config;
+        /* Baymesh: Apply or discard pending mesh control settings */
+        bool mesh_control_apply;
     };
     /* The node generates this key and sends it with any get_x_response packets.
  The client MUST include the same key with any set_x commands. Key expires after 300 seconds.
@@ -402,8 +406,8 @@ extern "C" {
 #define _meshtastic_OTAMode_ARRAYSIZE ((meshtastic_OTAMode)(meshtastic_OTAMode_OTA_WIFI+1))
 
 #define _meshtastic_AdminMessage_ConfigType_MIN meshtastic_AdminMessage_ConfigType_DEVICE_CONFIG
-#define _meshtastic_AdminMessage_ConfigType_MAX meshtastic_AdminMessage_ConfigType_DEVICEUI_CONFIG
-#define _meshtastic_AdminMessage_ConfigType_ARRAYSIZE ((meshtastic_AdminMessage_ConfigType)(meshtastic_AdminMessage_ConfigType_DEVICEUI_CONFIG+1))
+#define _meshtastic_AdminMessage_ConfigType_MAX meshtastic_AdminMessage_ConfigType_MESH_CONTROL_CONFIG
+#define _meshtastic_AdminMessage_ConfigType_ARRAYSIZE ((meshtastic_AdminMessage_ConfigType)(meshtastic_AdminMessage_ConfigType_MESH_CONTROL_CONFIG+1))
 
 #define _meshtastic_AdminMessage_ModuleConfigType_MIN meshtastic_AdminMessage_ModuleConfigType_MQTT_CONFIG
 #define _meshtastic_AdminMessage_ModuleConfigType_MAX meshtastic_AdminMessage_ModuleConfigType_TAK_CONFIG
@@ -551,6 +555,7 @@ extern "C" {
 #define meshtastic_AdminMessage_commit_edit_settings_tag 65
 #define meshtastic_AdminMessage_add_contact_tag  66
 #define meshtastic_AdminMessage_key_verification_tag 67
+#define meshtastic_AdminMessage_mesh_control_apply_tag 68
 #define meshtastic_AdminMessage_factory_reset_device_tag 94
 #define meshtastic_AdminMessage_reboot_ota_seconds_tag 95
 #define meshtastic_AdminMessage_exit_simulator_tag 96
@@ -612,6 +617,7 @@ X(a, STATIC,   ONEOF,    BOOL,     (payload_variant,begin_edit_settings,begin_ed
 X(a, STATIC,   ONEOF,    BOOL,     (payload_variant,commit_edit_settings,commit_edit_settings),  65) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,add_contact,add_contact),  66) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,key_verification,key_verification),  67) \
+X(a, STATIC,   ONEOF,    BOOL,     (payload_variant,mesh_control_apply,mesh_control_apply),  68) \
 X(a, STATIC,   ONEOF,    INT32,    (payload_variant,factory_reset_device,factory_reset_device),  94) \
 X(a, STATIC,   ONEOF,    INT32,    (payload_variant,reboot_ota_seconds,reboot_ota_seconds),  95) \
 X(a, STATIC,   ONEOF,    BOOL,     (payload_variant,exit_simulator,exit_simulator),  96) \

@@ -1854,15 +1854,13 @@ bool shouldWakeOnReceivedMessage()
     /*
     The goal here is to determine when we do NOT wake up the screen on message received:
     - Any ext. notifications are turned on
-    - If role is not CLIENT / CLIENT_MUTE / CLIENT_HIDDEN / CLIENT_BASE
+    - If role is not CLIENT
     - If the battery level is very low
     */
     if (moduleConfig.external_notification.enabled) {
         return false;
     }
-    if (!IS_ONE_OF(config.device.role, meshtastic_Config_DeviceConfig_Role_CLIENT,
-                   meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE, meshtastic_Config_DeviceConfig_Role_CLIENT_HIDDEN,
-                   meshtastic_Config_DeviceConfig_Role_CLIENT_BASE)) {
+    if (config.device.role != meshtastic_Config_DeviceConfig_Role_CLIENT) {
         return false;
     }
     if (powerStatus && powerStatus->getBatteryChargePercent() < 10) {

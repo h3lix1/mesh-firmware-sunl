@@ -136,7 +136,8 @@ void MeshModule::callModules(meshtastic_MeshPacket &mp, RxSource src)
                 // no one should have already replied!
                 assert(!currentReply);
 
-                if (isDecoded && mp.decoded.want_response) {
+                // Never send error responses to broadcast packets — only direct messages get error replies.
+                if (isDecoded && mp.decoded.want_response && !isBroadcast(mp.to)) {
                     printPacket("packet on wrong channel, returning error", &mp);
                     currentReply = pi.allocErrorResponse(meshtastic_Routing_Error_NOT_AUTHORIZED, &mp);
                 } else
@@ -154,7 +155,8 @@ void MeshModule::callModules(meshtastic_MeshPacket &mp, RxSource src)
                 // because currently when the phone sends things, it sends things using the local node ID as the from address.  A
                 // better solution (FIXME) would be to let phones have their own distinct addresses and we 'route' to them like
                 // any other node.
-                if (isDecoded && mp.decoded.want_response && toUs && (!isFromUs(&mp) || isToUs(&mp)) && !currentReply) {
+                // Only send application-level responses to direct (unicast) messages — never to broadcasts.
+                if (isDecoded && mp.decoded.want_response && isToUs(&mp) && (!isFromUs(&mp) || isToUs(&mp)) && !currentReply) {
                     pi.sendResponse(mp);
                     ignoreRequest = ignoreRequest || pi.ignoreRequest; // If at least one module asks it, we may ignore a request
                     LOG_INFO("Asked module '%s' to send a response", pi.name);
@@ -179,7 +181,9 @@ void MeshModule::callModules(meshtastic_MeshPacket &mp, RxSource src)
         pi.currentRequest = NULL;
     }
 
-    if (isDecoded && mp.decoded.want_response && toUs) {
+    // Only process want_response for unicast packets addressed directly to us.
+    // Broadcasts with want_response are fully deprecated — we neither reply nor NAK them.
+    if (isDecoded && mp.decoded.want_response && isToUs(&mp)) {
         if (currentReply) {
             printPacket("Send response", currentReply);
             service->sendToMesh(currentReply);

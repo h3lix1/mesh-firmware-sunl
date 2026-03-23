@@ -1,0 +1,25 @@
+name: Publish Firmware
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Optional firmware version override (defaults to 2.7.21.<short-sha>)"
+        required: false
+        type: string
+
+concurrency:
+  group: baymesh-manual-publish-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-publish:
+    uses: ./.github/workflows/build-and-publish.yml
+    permissions:
+      contents: write
+    with:
+      version: ${{ inputs.version }}
+    secrets: inherit

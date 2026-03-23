@@ -21,7 +21,10 @@ ErrorCode ReliableRouter::send(meshtastic_MeshPacket *p)
         auto copy = packetPool.allocCopy(*p);
         DEBUG_HEAP_AFTER("ReliableRouter::send", copy);
 
-        startRetransmission(copy, NUM_RELIABLE_RETX);
+        // Direct messages get extra retransmissions so the full CR-escalation sequence is exhausted
+        // before giving up.  Broadcasts use the standard count.
+        uint8_t numRetx = isBroadcast(p->to) ? NUM_RELIABLE_RETX : NUM_RELIABLE_RETX_DM;
+        startRetransmission(copy, numRetx);
     }
 
     /* If we have pending retransmissions, add the airtime of this packet to it, because during that time we cannot receive an
@@ -124,7 +127,7 @@ void ReliableRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtas
                     sendAckNak(meshtastic_Routing_Error_NO_CHANNEL, getFrom(p), p->id, channels.getPrimaryIndex(),
                                routingModule->getHopLimitForResponse(*p));
                 }
-            } else if (p->next_hop == nodeDB->getLastByteOfNodeNum(getNodeNum()) && p->hop_limit > 0) {
+            } else if (p->next_hop == getNodeNum() && p->hop_limit > 0) {
                 // No wantAck, but we need to ACK with hop limit of 0 if we were the next hop to stop their retransmissions
                 sendAckNak(meshtastic_Routing_Error_NONE, getFrom(p), p->id, p->channel, 0);
             }

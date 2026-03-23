@@ -35,6 +35,9 @@ class Router : protected concurrency::OSThread, protected PacketHistory
      */
     void addInterface(std::unique_ptr<RadioInterface> _iface) { iface = std::move(_iface); }
 
+    /** Return the active radio interface, or nullptr if not yet configured */
+    RadioInterface *getInterface() const { return iface.get(); }
+
     /**
      * do idle processing
      * Mostly looking in our incoming rxPacket queue and calling handleReceived.
@@ -112,8 +115,8 @@ class Router : protected concurrency::OSThread, protected PacketHistory
      * Determine if hop_limit should be decremented for a relay operation.
      * Returns false (preserve hop_limit) only if all conditions are met:
      * - It's NOT the first hop (first hop must always decrement)
-     * - Local device is a ROUTER, ROUTER_LATE, or CLIENT_BASE
-     * - Previous relay is a favorite ROUTER, ROUTER_LATE, or CLIENT_BASE
+     * - Local device is a ROUTER
+     * - Previous relay is a favorite ROUTER
      *
      * @param p The packet being relayed
      * @return true if hop_limit should be decremented, false to preserve it
@@ -155,6 +158,13 @@ class Router : protected concurrency::OSThread, protected PacketHistory
 
     /** Frees the provided packet, and generates a NAK indicating the specifed error while sending */
     void abortSendAndNak(meshtastic_Routing_Error err, meshtastic_MeshPacket *p);
+
+    // PKI retry state: when the destination's public key is unknown on first send,
+    // we save the packet, request a NodeInfo exchange, and retry once before NAKing.
+    meshtastic_MeshPacket *pkiRetryPacket = nullptr;
+    NodeNum pkiRetryDest = 0;
+    uint32_t pkiRetryQueued = 0;
+    static constexpr uint32_t PKI_RETRY_TIMEOUT_MS = 30000;
 };
 
 enum DecodeState { DECODE_SUCCESS, DECODE_FAILURE, DECODE_FATAL };

@@ -1274,7 +1274,7 @@ bool TrafficManagementModule::shouldRespondToNodeInfo(const meshtastic_MeshPacke
     // hop_start=0 is set explicitly because Router::send() only sets it for isFromUs(),
     // and our spoofed from means isFromUs() is false.
     reply->hop_start = 0;
-    reply->next_hop = nodeDB->getLastByteOfNodeNum(getFrom(p));
+    reply->next_hop = getFrom(p);
     reply->priority = meshtastic_MeshPacket_Priority_DEFAULT;
 
     service->sendToMesh(reply);
@@ -1289,8 +1289,7 @@ bool TrafficManagementModule::isMinHopsFromRequestor(const meshtastic_MeshPacket
 
     // Both routers and clients use maxHops logic (respond when hopsAway <= threshold)
     // Role determines the maximum allowed value (enforced limit, not just default)
-    bool isRouter = IS_ONE_OF(config.device.role, meshtastic_Config_DeviceConfig_Role_ROUTER,
-                              meshtastic_Config_DeviceConfig_Role_ROUTER_LATE, meshtastic_Config_DeviceConfig_Role_CLIENT_BASE);
+    bool isRouter = (config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER);
 
     uint32_t roleLimit = isRouter ? kRouterDefaultMaxHops : kClientDefaultMaxHops;
     uint32_t configValue = moduleConfig.traffic_management.nodeinfo_direct_response_max_hops;

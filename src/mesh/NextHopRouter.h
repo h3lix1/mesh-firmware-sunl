@@ -39,6 +39,9 @@ struct PendingPacket {
     /** Starts at NUM_RETRANSMISSIONS -1 and counts down.  Once zero it will be removed from the list */
     uint8_t numRetransmissions = 0;
 
+    /** Incremented on each retransmission; used to escalate the LoRa coding rate per attempt */
+    uint8_t retransmitAttempt = 0;
+
     PendingPacket() {}
     explicit PendingPacket(meshtastic_MeshPacket *p, uint8_t numRetransmissions);
 };
@@ -89,8 +92,11 @@ class NextHopRouter : public FloodingRouter
 
     // The number of retransmissions intermediate nodes will do (actually 1 less than this)
     constexpr static uint8_t NUM_INTERMEDIATE_RETX = 2;
-    // The number of retransmissions the original sender will do
-    constexpr static uint8_t NUM_RELIABLE_RETX = 3;
+    // The number of retransmissions the original sender will do for broadcasts/general packets.
+    // With CR escalation this covers all 4 LoRa coding rates (4/5 on initial send, 4/6, 4/7, 4/8 on retransmits).
+    constexpr static uint8_t NUM_RELIABLE_RETX = 4;
+    // Extra retransmissions for direct messages (unicast).  The higher count plus CR escalation maximises first-hop delivery.
+    constexpr static uint8_t NUM_RELIABLE_RETX_DM = 5;
 
   protected:
     /**

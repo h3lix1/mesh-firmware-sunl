@@ -402,6 +402,15 @@ void RadioLibInterface::handleTransmitInterrupt()
 
 void RadioLibInterface::completeSending()
 {
+    // Restore configured coding rate if we overrode it for a retransmission
+    if (txCrOverride != 0) {
+        txCrOverride = 0;
+        int err = iface->setDataRate(getDataRate());
+        if (err != RADIOLIB_ERR_NONE) {
+            LOG_WARN("Failed to restore CR after TX override, err=%d", err);
+        }
+    }
+
     // We are careful to clear sending packet before calling printPacket because
     // that can take a long time
     auto p = sendingPacket;
@@ -454,8 +463,8 @@ void RadioLibInterface::handleReceiveInterrupt()
 #endif
     if (state != RADIOLIB_ERR_NONE) {
         // Log PacketHeader similar to RadioInterface::printPacket so we can try to match RX errors to other packets in the logs.
-        LOG_ERROR("Ignore received packet due to error=%d (maybe id=0x%08x fr=0x%08x to=0x%08x flags=0x%02x rxSNR=%g rxRSSI=%i "
-                  "nextHop=0x%x relay=0x%x)",
+        LOG_ERROR("Ignore received packet due to error=%d (maybe id=0x%08x fr=0x%08x to=0x%08x flags=0x%04x rxSNR=%g rxRSSI=%i "
+                  "nextHop=0x%08x relay=0x%08x)",
                   state, radioBuffer.header.id, radioBuffer.header.from, radioBuffer.header.to, radioBuffer.header.flags,
                   iface->getSNR(), lround(iface->getRSSI()), radioBuffer.header.next_hop, radioBuffer.header.relay_node);
         rxBad++;
@@ -544,6 +553,19 @@ void RadioLibInterface::checkRxDoneIrqFlag()
 
 void RadioLibInterface::configHardwareForSend()
 {
+    // Apply a one-shot coding-rate override if one was requested (e.g. CR escalation during retransmissions).
+    // LoRa uses explicit-header mode, so the CR is embedded in every packet header and receivers auto-detect it.
+    if (txCrOverride != 0 && txCrOverride != cr) {
+        DataRate_t dr = getDataRate();
+        dr.lora.codingRate = txCrOverride;
+        int err = iface->setDataRate(dr);
+        if (err != RADIOLIB_ERR_NONE) {
+            LOG_WARN("Failed to apply TX CR override %u, err=%d", txCrOverride, err);
+            txCrOverride = 0;
+        } else {
+            LOG_DEBUG("TX CR override: using 4/%u for this packet", txCrOverride);
+        }
+    }
     powerMon->setState(meshtastic_PowerMon_State_Lora_TXOn);
 }
 
