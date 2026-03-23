@@ -193,22 +193,32 @@ jobs:
           import json
           import os
           import re
+          from datetime import datetime, timezone
 
           version = os.environ["VERSION"]
           staging_dir = os.path.join(os.environ["GITHUB_WORKSPACE"], "staging", f"firmware-{version}")
           release_manifest_path = os.path.join(staging_dir, f"firmware-{version}.json")
 
-          boards = set()
-          for name in os.listdir(staging_dir):
-            if not re.match(rf"^firmware-(.+)-{re.escape(version)}\.(bin|uf2|hex|zip|json)$", name):
-              continue
-            board = re.sub(rf"^firmware-(.+)-{re.escape(version)}\.(bin|uf2|hex|zip|json)$", r"\1", name)
-            if board:
-              boards.add(board)
+          # Prefer uf2 > bin > hex as the primary flashable file per board
+          PRIORITY = {"uf2": 0, "bin": 1, "hex": 2}
 
+          targets = {}
+          for name in os.listdir(staging_dir):
+            m = re.match(rf"^firmware-(.+)-{re.escape(version)}\.(uf2|bin|hex)$", name)
+            if not m:
+              continue
+            board, ext = m.group(1), m.group(2)
+            # skip factory.bin — it's a separate artifact
+            if board.endswith(".factory"):
+              continue
+            if board not in targets or PRIORITY.get(ext, 99) < PRIORITY.get(targets[board]["type"], 99):
+              targets[board] = {"board": board, "firmware": name, "type": ext}
+
+          build_date = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
           manifest = {
             "version": version,
-            "targets": [{"board": board, "platform": "unknown"} for board in sorted(boards)],
+            "build_date": build_date,
+            "targets": [targets[b] for b in sorted(targets)],
           }
 
           with open(release_manifest_path, "w", encoding="utf-8") as handle:
@@ -220,6 +230,16 @@ jobs:
           mkdir -p "$PAGES_DIR/$RELEASE_DIR"
           cp -R "$STAGING_DIR/." "$PAGES_DIR/$RELEASE_DIR/"
           cp "$PAGES_DIR/$RELEASE_DIR/firmware-$VERSION.json" "$ROOT_MANIFEST"
+
+          # Write latest.json so the flasher can always find the newest version
+          python -c "
+import json, os
+version = os.environ['VERSION']
+latest = {'version': version}
+with open('$PAGES_DIR/latest.json', 'w') as f:
+    json.dump(latest, f, indent=2)
+    f.write('\n')
+"
 
           rm -f "$ROOT_ZIP"
           (
@@ -233,7 +253,7 @@ jobs:
           cd firmware-pages
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
-          git add "firmware-$VERSION" "firmware-$VERSION.json" "firmware-$VERSION.zip"
+          git add "firmware-$VERSION" "firmware-$VERSION.json" "firmware-$VERSION.zip" "latest.json"
           git diff --cached --quiet && exit 0
           git commit -m "Publish firmware $VERSION"
           git push origin gh-pages
