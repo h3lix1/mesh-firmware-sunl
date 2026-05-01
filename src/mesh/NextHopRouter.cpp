@@ -32,8 +32,7 @@ ErrorCode NextHopRouter::send(meshtastic_MeshPacket *p)
     bool forceFloodFirstHop =
         !isBroadcast(p->to) && isFromUs(p) && p->hop_limit > 0 &&
         !(p->which_payload_variant == meshtastic_MeshPacket_decoded_tag && p->decoded.portnum == meshtastic_PortNum_ROUTING_APP);
-    p->next_hop =
-        forceFloodFirstHop ? NO_NEXT_HOP_PREFERENCE : getNextHop(p->to, p->relay_node).value_or(NO_NEXT_HOP_PREFERENCE);
+    p->next_hop = forceFloodFirstHop ? NO_NEXT_HOP_PREFERENCE : getNextHop(p->to, p->relay_node).value_or(NO_NEXT_HOP_PREFERENCE);
     if (forceFloodFirstHop) {
         LOG_DEBUG("Disabling next hop for first unicast hop to 0x%x", p->to);
     } else {
@@ -112,9 +111,12 @@ void NextHopRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtast
             if (origTx) {
                 // Either relayer of ACK was also a relayer of the packet, or we were the *only* relayer and the ACK came
                 // directly from the destination
-                bool wasAlreadyRelayer = wasRelayer(p->relay_node, p->decoded.request_id, p->to);
+                // Single lookup for both relayer checks on the same (request_id, to) pair
+                bool wasAlreadyRelayer = false;
                 bool weWereSoleRelayer = false;
-                bool weWereRelayer = wasRelayer(ourRelayID, p->decoded.request_id, p->to, &weWereSoleRelayer);
+                bool weWereRelayer = false;
+                checkRelayers(p->relay_node, ourRelayID, p->decoded.request_id, p->to, &wasAlreadyRelayer, &weWereRelayer,
+                              &weWereSoleRelayer);
                 if ((weWereRelayer && wasAlreadyRelayer) || (getHopsAway(*p) == 0 && weWereSoleRelayer)) {
                     if (origTx->next_hop != p->relay_node) { // Not already set
                         LOG_INFO("Update next hop of 0x%x to 0x%x based on ACK/reply (was relayer %d we were sole %d)", p->from,
