@@ -15,6 +15,19 @@ static const meshtastic_Config_LoRaConfig_ModemPreset MODEM_PRESET_END =
 
 #define PRESET(name) meshtastic_Config_LoRaConfig_ModemPreset_##name
 
+static inline bool modemPresetRadioCompatible(meshtastic_Config_LoRaConfig_ModemPreset preset, bool wideLoraRegion,
+                                              bool allowUnknownRadio = false)
+{
+    if (preset != PRESET(SHORT_ULTRA))
+        return true;
+
+    if (wideLoraRegion)
+        return false;
+
+    return (allowUnknownRadio && radioType == NO_RADIO) || radioType == STM32WLx_RADIO || radioType == SX1262_RADIO ||
+           radioType == SX1268_RADIO || radioType == LR1110_RADIO || radioType == LR1120_RADIO || radioType == LR1121_RADIO;
+}
+
 // Override slot magic numbers for RegionInfo.overrideSlot
 #define OVERRIDE_SLOT_DEFAULT_CHANNEL_HASH 0 // Use hash of primary channel name
 #define OVERRIDE_SLOT_PRESET_HASH -1         // Use hash of preset name instead
@@ -65,19 +78,21 @@ struct RegionInfo {
     // Preset accessors (delegate through profile)
     meshtastic_Config_LoRaConfig_ModemPreset getDefaultPreset() const { return defaultPreset; }
     const meshtastic_Config_LoRaConfig_ModemPreset *getAvailablePresets() const { return profile->presets; }
-    bool supportsPreset(meshtastic_Config_LoRaConfig_ModemPreset preset) const
+    bool supportsPreset(meshtastic_Config_LoRaConfig_ModemPreset preset, bool allowUnknownRadio = false) const
     {
         for (size_t i = 0; profile->presets[i] != MODEM_PRESET_END; i++) {
             if (profile->presets[i] == preset)
-                return true;
+                return modemPresetRadioCompatible(preset, wideLora, allowUnknownRadio);
         }
         return false;
     }
-    size_t getNumPresets() const
+    size_t getNumPresets(bool allowUnknownRadio = false) const
     {
         size_t n = 0;
-        while (profile->presets[n] != MODEM_PRESET_END)
-            n++;
+        for (size_t i = 0; profile->presets[i] != MODEM_PRESET_END; i++) {
+            if (modemPresetRadioCompatible(profile->presets[i], wideLora, allowUnknownRadio))
+                n++;
+        }
         return n;
     }
 };
@@ -194,6 +209,11 @@ static inline void modemPresetToParams(meshtastic_Config_LoRaConfig_ModemPreset 
                                        uint8_t &cr)
 {
     switch (preset) {
+    case PRESET(SHORT_ULTRA):
+        bwKHz = 500.0f;
+        cr = 5;
+        sf = 5;
+        break;
     case PRESET(SHORT_TURBO):
         bwKHz = wideLora ? 1625.0f : 500.0f;
         cr = 5;

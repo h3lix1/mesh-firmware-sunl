@@ -200,6 +200,52 @@ static void test_applyModemConfig_customCodingRateLowerThanPreset()
     TEST_ASSERT_EQUAL_UINT8(8, testRadio->getCr());
 }
 
+static void test_applyModemConfig_shortUltraParams()
+{
+    radioType = SX1262_RADIO;
+    config.lora = meshtastic_Config_LoRaConfig_init_zero;
+    config.lora.region = meshtastic_Config_LoRaConfig_RegionCode_US;
+    config.lora.use_preset = true;
+    config.lora.modem_preset = meshtastic_Config_LoRaConfig_ModemPreset_SHORT_ULTRA;
+
+    testRadio->reconfigure();
+
+    TEST_ASSERT_EQUAL_UINT8(5, testRadio->getCr());
+    TEST_ASSERT_EQUAL_UINT8(5, testRadio->getSf());
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 500.0f, testRadio->getBw());
+}
+
+static void test_validateConfigLora_shortUltraHardwareGate()
+{
+    meshtastic_Config_LoRaConfig cfg = meshtastic_Config_LoRaConfig_init_zero;
+    cfg.use_preset = true;
+    cfg.region = meshtastic_Config_LoRaConfig_RegionCode_US;
+    cfg.modem_preset = meshtastic_Config_LoRaConfig_ModemPreset_SHORT_ULTRA;
+
+    radioType = RF95_RADIO;
+    TEST_ASSERT_FALSE(RadioInterface::validateConfigLora(cfg));
+
+    radioType = NO_RADIO;
+    TEST_ASSERT_FALSE(RadioInterface::validateConfigLora(cfg));
+
+    radioType = STM32WLx_RADIO;
+    TEST_ASSERT_TRUE(RadioInterface::validateConfigLora(cfg));
+
+    radioType = LR1110_RADIO;
+    TEST_ASSERT_TRUE(RadioInterface::validateConfigLora(cfg));
+}
+
+static void test_validateConfigLora_shortUltraNotWideLora()
+{
+    meshtastic_Config_LoRaConfig cfg = meshtastic_Config_LoRaConfig_init_zero;
+    cfg.use_preset = true;
+    cfg.region = meshtastic_Config_LoRaConfig_RegionCode_LORA_24;
+    cfg.modem_preset = meshtastic_Config_LoRaConfig_ModemPreset_SHORT_ULTRA;
+
+    radioType = LR1121_RADIO;
+    TEST_ASSERT_FALSE(RadioInterface::validateConfigLora(cfg));
+}
+
 // -----------------------------------------------------------------------
 // getRegionPresetMap() — region->valid-preset map sent to clients during want_config
 // -----------------------------------------------------------------------
@@ -261,15 +307,15 @@ static void test_regionPresetMap_matchesRegionTable()
         const size_t maxPresets = sizeof(grp.presets) / sizeof(grp.presets[0]);
         TEST_ASSERT_GREATER_THAN_UINT(0, grp.presets_count);
         TEST_ASSERT_LESS_OR_EQUAL_UINT((unsigned)maxPresets, grp.presets_count);
-        TEST_ASSERT_EQUAL_UINT((unsigned)r->getNumPresets(), (unsigned)grp.presets_count);
+        TEST_ASSERT_EQUAL_UINT((unsigned)r->getNumPresets(true), (unsigned)grp.presets_count);
 
         // Every advertised preset is legal in this region.
         for (pb_size_t p = 0; p < grp.presets_count; p++)
-            TEST_ASSERT_TRUE(r->supportsPreset(grp.presets[p]));
+            TEST_ASSERT_TRUE(r->supportsPreset(grp.presets[p], true));
 
         // Default preset matches the table, is legal, and is present in the list.
         TEST_ASSERT_EQUAL(r->getDefaultPreset(), grp.default_preset);
-        TEST_ASSERT_TRUE(r->supportsPreset(grp.default_preset));
+        TEST_ASSERT_TRUE(r->supportsPreset(grp.default_preset, true));
         bool defaultInList = false;
         for (pb_size_t p = 0; p < grp.presets_count; p++)
             if (grp.presets[p] == grp.default_preset)
@@ -281,10 +327,61 @@ static void test_regionPresetMap_matchesRegionTable()
     }
 }
 
+static int findPresetGroup(const meshtastic_LoRaRegionPresetMap &map, meshtastic_Config_LoRaConfig_RegionCode region)
+{
+    for (pb_size_t i = 0; i < map.region_groups_count; i++) {
+        if (map.region_groups[i].region == region)
+            return map.region_groups[i].group_index;
+    }
+    return -1;
+}
+
+static bool groupHasPreset(const meshtastic_LoRaPresetGroup &grp, meshtastic_Config_LoRaConfig_ModemPreset preset)
+{
+    for (pb_size_t p = 0; p < grp.presets_count; p++) {
+        if (grp.presets[p] == preset)
+            return true;
+    }
+    return false;
+}
+
+static void test_regionPresetMap_filtersShortUltraByRadioAndRegion()
+{
+    meshtastic_LoRaRegionPresetMap map;
+
+    radioType = SX1262_RADIO;
+    getRegionPresetMap(map);
+    int usGroup = findPresetGroup(map, meshtastic_Config_LoRaConfig_RegionCode_US);
+    int lora24Group = findPresetGroup(map, meshtastic_Config_LoRaConfig_RegionCode_LORA_24);
+    TEST_ASSERT_TRUE(usGroup >= 0);
+    TEST_ASSERT_TRUE(lora24Group >= 0);
+    TEST_ASSERT_TRUE(groupHasPreset(map.groups[usGroup], meshtastic_Config_LoRaConfig_ModemPreset_SHORT_ULTRA));
+    TEST_ASSERT_FALSE(groupHasPreset(map.groups[lora24Group], meshtastic_Config_LoRaConfig_ModemPreset_SHORT_ULTRA));
+
+    radioType = STM32WLx_RADIO;
+    getRegionPresetMap(map);
+    usGroup = findPresetGroup(map, meshtastic_Config_LoRaConfig_RegionCode_US);
+    TEST_ASSERT_TRUE(usGroup >= 0);
+    TEST_ASSERT_TRUE(groupHasPreset(map.groups[usGroup], meshtastic_Config_LoRaConfig_ModemPreset_SHORT_ULTRA));
+
+    radioType = RF95_RADIO;
+    getRegionPresetMap(map);
+    usGroup = findPresetGroup(map, meshtastic_Config_LoRaConfig_RegionCode_US);
+    TEST_ASSERT_TRUE(usGroup >= 0);
+    TEST_ASSERT_FALSE(groupHasPreset(map.groups[usGroup], meshtastic_Config_LoRaConfig_ModemPreset_SHORT_ULTRA));
+
+    radioType = NO_RADIO;
+    getRegionPresetMap(map);
+    usGroup = findPresetGroup(map, meshtastic_Config_LoRaConfig_RegionCode_US);
+    TEST_ASSERT_TRUE(usGroup >= 0);
+    TEST_ASSERT_TRUE(groupHasPreset(map.groups[usGroup], meshtastic_Config_LoRaConfig_ModemPreset_SHORT_ULTRA));
+}
+
 void setUp(void)
 {
     mockMeshService = new MockMeshService();
     service = mockMeshService;
+    radioType = NO_RADIO;
 
     // RadioInterface computes slotTimeMsec during construction and expects myRegion to be valid.
     config.lora.region = meshtastic_Config_LoRaConfig_RegionCode_US;
@@ -299,6 +396,7 @@ void tearDown(void)
     service = nullptr;
     delete mockMeshService;
     mockMeshService = nullptr;
+    radioType = NO_RADIO;
 }
 
 void setup()
@@ -322,8 +420,12 @@ void setup()
     RUN_TEST(test_applyModemConfig_codingRateMatchesPreset);
     RUN_TEST(test_applyModemConfig_customCodingRateHigherThanPreset);
     RUN_TEST(test_applyModemConfig_customCodingRateLowerThanPreset);
+    RUN_TEST(test_applyModemConfig_shortUltraParams);
+    RUN_TEST(test_validateConfigLora_shortUltraHardwareGate);
+    RUN_TEST(test_validateConfigLora_shortUltraNotWideLora);
     RUN_TEST(test_regionPresetMap_coversAllRegionsWithinBounds);
     RUN_TEST(test_regionPresetMap_matchesRegionTable);
+    RUN_TEST(test_regionPresetMap_filtersShortUltraByRadioAndRegion);
     exit(UNITY_END());
 }
 

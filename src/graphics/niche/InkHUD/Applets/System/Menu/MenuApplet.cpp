@@ -1559,10 +1559,13 @@ void InkHUD::MenuApplet::showPage(MenuPage page)
         regionPresetCount = 0;
         if (myRegion && myRegion->profile) {
             const meshtastic_Config_LoRaConfig_ModemPreset *presets = myRegion->getAvailablePresets();
-            size_t numPresets = myRegion->getNumPresets();
-            for (size_t i = 0; i < numPresets && regionPresetCount < MAX_REGION_PRESETS; ++i) {
-                regionPresets[regionPresetCount++] = presets[i];
-                const char *name = DisplayFormatters::getModemPresetDisplayName(presets[i], false, true);
+            for (size_t i = 0; presets[i] != MODEM_PRESET_END && regionPresetCount < MAX_REGION_PRESETS; ++i) {
+                const auto preset = presets[i];
+                if (!myRegion->supportsPreset(preset))
+                    continue;
+
+                regionPresets[regionPresetCount++] = preset;
+                const char *name = DisplayFormatters::getModemPresetDisplayName(preset, false, true);
                 nodeConfigLabels.emplace_back(name);
                 items.push_back(MenuItem(nodeConfigLabels.back().c_str(), MenuAction::SET_PRESET_FROM_REGION, MenuPage::EXIT));
             }

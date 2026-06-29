@@ -318,7 +318,7 @@ def userprefs_testing_profile(
         region: short code — one of US, EU_433, EU_868, CN, JP, ANZ, KR, TW,
             RU, IN, NZ_865, TH, UA_433, UA_868, MY_433, MY_919, SG_923, LORA_24.
         modem_preset: one of LONG_FAST, LONG_SLOW, LONG_MODERATE, VERY_LONG_SLOW,
-            MEDIUM_SLOW, MEDIUM_FAST, SHORT_SLOW, SHORT_FAST, SHORT_TURBO.
+            MEDIUM_SLOW, MEDIUM_FAST, SHORT_SLOW, SHORT_FAST, SHORT_TURBO, SHORT_ULTRA.
         short_name: optional owner short name (≤4 chars) stamped into the build.
         long_name: optional owner long name stamped into the build.
         disable_mqtt: disable MQTT module + uplink/downlink (default True).

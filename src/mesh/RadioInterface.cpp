@@ -35,8 +35,8 @@
 #endif
 
 static const meshtastic_Config_LoRaConfig_ModemPreset PRESETS_STD[] = {
-    PRESET(LONG_FAST),  PRESET(LONG_SLOW),     PRESET(MEDIUM_SLOW), PRESET(MEDIUM_FAST), PRESET(SHORT_SLOW),
-    PRESET(SHORT_FAST), PRESET(LONG_MODERATE), PRESET(SHORT_TURBO), PRESET(LONG_TURBO),  MODEM_PRESET_END};
+    PRESET(LONG_FAST),     PRESET(LONG_SLOW),   PRESET(MEDIUM_SLOW), PRESET(MEDIUM_FAST), PRESET(SHORT_SLOW), PRESET(SHORT_FAST),
+    PRESET(LONG_MODERATE), PRESET(SHORT_TURBO), PRESET(LONG_TURBO),  PRESET(SHORT_ULTRA), MODEM_PRESET_END};
 
 static const meshtastic_Config_LoRaConfig_ModemPreset PRESETS_EU_868[] = {
     PRESET(LONG_FAST),  PRESET(LONG_SLOW),  PRESET(MEDIUM_SLOW),   PRESET(MEDIUM_FAST),
@@ -309,9 +309,23 @@ extern RadioLibHal *RadioLibHAL;
 extern SPIClass SPI1;
 #endif
 
+static void clearRadioTypeOnFailedProbe()
+{
+    radioType = NO_RADIO;
+}
+
 std::unique_ptr<RadioInterface> initLoRa()
 {
     std::unique_ptr<RadioInterface> rIf = nullptr;
+    meshtastic_Config_LoRaConfig loraBeforeProbe = config.lora;
+    auto beginProbe = [&](LoRaRadioType candidate) {
+        loraBeforeProbe = config.lora;
+        radioType = candidate;
+    };
+    auto failProbe = [&]() {
+        config.lora = loraBeforeProbe;
+        clearRadioTypeOnFailedProbe();
+    };
 
 #if ARCH_PORTDUINO
     SPISettings loraSpiSettings(portduino_config.spiSpeed, MSBFIRST, SPI_MODE0);
@@ -321,6 +335,30 @@ std::unique_ptr<RadioInterface> initLoRa()
 
 #ifdef ARCH_PORTDUINO
     // as one can't use a function pointer to the class constructor:
+    auto portduinoRadioType = [](lora_module_enum module) {
+        switch (module) {
+        case use_rf95:
+            return RF95_RADIO;
+        case use_sx1262:
+            return SX1262_RADIO;
+        case use_sx1268:
+            return SX1268_RADIO;
+        case use_sx1280:
+            return SX1280_RADIO;
+        case use_lr1110:
+            return LR1110_RADIO;
+        case use_lr1120:
+            return LR1120_RADIO;
+        case use_lr1121:
+            return LR1121_RADIO;
+        case use_llcc68:
+            return LLCC68_RADIO;
+        case use_simradio:
+            return SIM_RADIO;
+        default:
+            return NO_RADIO;
+        }
+    };
     auto loraModuleInterface = [](LockingArduinoHal *hal, RADIOLIB_PIN_TYPE cs, RADIOLIB_PIN_TYPE irq, RADIOLIB_PIN_TYPE rst,
                                   RADIOLIB_PIN_TYPE busy) {
         switch (portduino_config.lora_module) {
@@ -363,6 +401,7 @@ std::unique_ptr<RadioInterface> initLoRa()
         loraModuleInterface((LockingArduinoHal *)RadioLibHAL, portduino_config.lora_cs_pin.pin, portduino_config.lora_irq_pin.pin,
                             portduino_config.lora_reset_pin.pin, portduino_config.lora_busy_pin.pin);
 
+    beginProbe(portduinoRadioType(portduino_config.lora_module));
     if (!rIf->init()) {
         LOG_WARN("No %s radio", portduino_config.loraModules[portduino_config.lora_module].c_str());
         rIf = nullptr;
@@ -384,12 +423,13 @@ std::unique_ptr<RadioInterface> initLoRa()
     if (!rIf) {
         rIf = std::unique_ptr<STM32WLE5JCInterface>(
             new STM32WLE5JCInterface(loraHal, SX126X_CS, SX126X_DIO1, SX126X_RESET, SX126X_BUSY));
+        beginProbe(STM32WLx_RADIO);
         if (!rIf->init()) {
             LOG_WARN("No STM32WL radio");
             rIf = nullptr;
+            failProbe();
         } else {
             LOG_INFO("STM32WL init success");
-            radioType = STM32WLx_RADIO;
         }
     }
 #endif
@@ -397,12 +437,13 @@ std::unique_ptr<RadioInterface> initLoRa()
 #if defined(RF95_IRQ) && RADIOLIB_EXCLUDE_SX127X != 1
     if ((!rIf) && (config.lora.region != meshtastic_Config_LoRaConfig_RegionCode_LORA_24)) {
         rIf = std::unique_ptr<RF95Interface>(new RF95Interface(loraHal, LORA_CS, RF95_IRQ, RF95_RESET, RF95_DIO1));
+        beginProbe(RF95_RADIO);
         if (!rIf->init()) {
             LOG_WARN("No RF95 radio");
             rIf = nullptr;
+            failProbe();
         } else {
             LOG_INFO("RF95 init success");
-            radioType = RF95_RADIO;
         }
     }
 #endif
@@ -414,13 +455,14 @@ std::unique_ptr<RadioInterface> initLoRa()
 #ifdef SX126X_DIO3_TCXO_VOLTAGE
         sxIf->setTCXOVoltage(SX126X_DIO3_TCXO_VOLTAGE);
 #endif
+        beginProbe(SX1262_RADIO);
         if (!sxIf->init()) {
             LOG_WARN("No SX1262 radio");
             rIf = nullptr;
+            failProbe();
         } else {
             LOG_INFO("SX1262 init success");
             rIf = std::move(sxIf);
-            radioType = SX1262_RADIO;
         }
     }
 #endif
@@ -431,25 +473,27 @@ std::unique_ptr<RadioInterface> initLoRa()
         auto sxIf =
             std::unique_ptr<SX1262Interface>(new SX1262Interface(loraHal, SX126X_CS, SX126X_DIO1, SX126X_RESET, SX126X_BUSY));
         sxIf->setTCXOVoltage(SX126X_DIO3_TCXO_VOLTAGE);
+        beginProbe(SX1262_RADIO);
         if (!sxIf->init()) {
             LOG_WARN("No SX1262 radio with TCXO, Vref %fV", SX126X_DIO3_TCXO_VOLTAGE);
             rIf = nullptr;
+            failProbe();
         } else {
             LOG_INFO("SX1262 init success, TCXO, Vref %fV", SX126X_DIO3_TCXO_VOLTAGE);
             rIf = std::move(sxIf);
-            radioType = SX1262_RADIO;
         }
     }
 
     if ((!rIf) && (config.lora.region != meshtastic_Config_LoRaConfig_RegionCode_LORA_24)) {
         // If specified TCXO voltage fails, attempt to use DIO3 as a reference instead
         rIf = std::unique_ptr<SX1262Interface>(new SX1262Interface(loraHal, SX126X_CS, SX126X_DIO1, SX126X_RESET, SX126X_BUSY));
+        beginProbe(SX1262_RADIO);
         if (!rIf->init()) {
             LOG_WARN("No SX1262 radio with XTAL, Vref 0.0V");
             rIf = nullptr;
+            failProbe();
         } else {
             LOG_INFO("SX1262 init success, XTAL, Vref 0.0V");
-            radioType = SX1262_RADIO;
         }
     }
 #endif
@@ -461,24 +505,26 @@ std::unique_ptr<RadioInterface> initLoRa()
         auto sxIf =
             std::unique_ptr<SX1268Interface>(new SX1268Interface(loraHal, SX126X_CS, SX126X_DIO1, SX126X_RESET, SX126X_BUSY));
         sxIf->setTCXOVoltage(SX126X_DIO3_TCXO_VOLTAGE);
+        beginProbe(SX1268_RADIO);
         if (!sxIf->init()) {
             LOG_WARN("No SX1268 radio with TCXO, Vref %fV", SX126X_DIO3_TCXO_VOLTAGE);
             rIf = nullptr;
+            failProbe();
         } else {
             LOG_INFO("SX1268 init success, TCXO, Vref %fV", SX126X_DIO3_TCXO_VOLTAGE);
             rIf = std::move(sxIf);
-            radioType = SX1268_RADIO;
         }
     }
 #endif
     if ((!rIf) && (config.lora.region != meshtastic_Config_LoRaConfig_RegionCode_LORA_24)) {
         rIf = std::unique_ptr<SX1268Interface>(new SX1268Interface(loraHal, SX126X_CS, SX126X_DIO1, SX126X_RESET, SX126X_BUSY));
+        beginProbe(SX1268_RADIO);
         if (!rIf->init()) {
             LOG_WARN("No SX1268 radio");
             rIf = nullptr;
+            failProbe();
         } else {
             LOG_INFO("SX1268 init success");
-            radioType = SX1268_RADIO;
         }
     }
 #endif
@@ -486,12 +532,13 @@ std::unique_ptr<RadioInterface> initLoRa()
 #if defined(USE_LLCC68)
     if ((!rIf) && (config.lora.region != meshtastic_Config_LoRaConfig_RegionCode_LORA_24)) {
         rIf = std::unique_ptr<LLCC68Interface>(new LLCC68Interface(loraHal, SX126X_CS, SX126X_DIO1, SX126X_RESET, SX126X_BUSY));
+        beginProbe(LLCC68_RADIO);
         if (!rIf->init()) {
             LOG_WARN("No LLCC68 radio");
             rIf = nullptr;
+            failProbe();
         } else {
             LOG_INFO("LLCC68 init success");
-            radioType = LLCC68_RADIO;
         }
     }
 #endif
@@ -500,12 +547,13 @@ std::unique_ptr<RadioInterface> initLoRa()
     if ((!rIf) && (config.lora.region != meshtastic_Config_LoRaConfig_RegionCode_LORA_24)) {
         rIf = std::unique_ptr<LR1110Interface>(
             new LR1110Interface(loraHal, LR1110_SPI_NSS_PIN, LR1110_IRQ_PIN, LR1110_NRESET_PIN, LR1110_BUSY_PIN));
+        beginProbe(LR1110_RADIO);
         if (!rIf->init()) {
             LOG_WARN("No LR1110 radio");
             rIf = nullptr;
+            failProbe();
         } else {
             LOG_INFO("LR1110 init success");
-            radioType = LR1110_RADIO;
         }
     }
 #endif
@@ -514,12 +562,13 @@ std::unique_ptr<RadioInterface> initLoRa()
     if (!rIf) {
         rIf = std::unique_ptr<LR1120Interface>(
             new LR1120Interface(loraHal, LR1120_SPI_NSS_PIN, LR1120_IRQ_PIN, LR1120_NRESET_PIN, LR1120_BUSY_PIN));
+        beginProbe(LR1120_RADIO);
         if (!rIf->init()) {
             LOG_WARN("No LR1120 radio");
             rIf = nullptr;
+            failProbe();
         } else {
             LOG_INFO("LR1120 init success");
-            radioType = LR1120_RADIO;
         }
     }
 #endif
@@ -528,12 +577,13 @@ std::unique_ptr<RadioInterface> initLoRa()
     if (!rIf) {
         rIf = std::unique_ptr<LR1121Interface>(
             new LR1121Interface(loraHal, LR1121_SPI_NSS_PIN, LR1121_IRQ_PIN, LR1121_NRESET_PIN, LR1121_BUSY_PIN));
+        beginProbe(LR1121_RADIO);
         if (!rIf->init()) {
             LOG_WARN("No LR1121 radio");
             rIf = nullptr;
+            failProbe();
         } else {
             LOG_INFO("LR1121 init success");
-            radioType = LR1121_RADIO;
         }
     }
 #endif
@@ -542,12 +592,13 @@ std::unique_ptr<RadioInterface> initLoRa()
     if (!rIf) {
         rIf = std::unique_ptr<LR2021Interface>(
             new LR2021Interface(loraHal, LR2021_SPI_NSS_PIN, LR2021_IRQ_PIN, LR2021_NRESET_PIN, LR2021_BUSY_PIN));
+        beginProbe(LR2021_RADIO);
         if (!rIf->init()) {
             LOG_WARN("No LR2021 radio");
             rIf = nullptr;
+            failProbe();
         } else {
             LOG_INFO("LR2021 init success");
-            radioType = LR2021_RADIO;
         }
     }
 #endif
@@ -555,12 +606,13 @@ std::unique_ptr<RadioInterface> initLoRa()
 #if defined(USE_SX1280) && RADIOLIB_EXCLUDE_SX128X != 1
     if (!rIf) {
         rIf = std::unique_ptr<SX1280Interface>(new SX1280Interface(loraHal, SX128X_CS, SX128X_DIO1, SX128X_RESET, SX128X_BUSY));
+        beginProbe(SX1280_RADIO);
         if (!rIf->init()) {
             LOG_WARN("No SX1280 radio");
             rIf = nullptr;
+            failProbe();
         } else {
             LOG_INFO("SX1280 init success");
-            radioType = SX1280_RADIO;
         }
     }
 #endif
@@ -605,6 +657,23 @@ const RegionInfo *getRegion(meshtastic_Config_LoRaConfig_RegionCode code)
     return r;
 }
 
+static bool presetGroupMatchesRegion(const meshtastic_LoRaPresetGroup &grp, const RegionInfo *r, bool allowUnknownRadio)
+{
+    if (grp.default_preset != r->getDefaultPreset() || grp.licensed_only != r->profile->licensedOnly)
+        return false;
+
+    pb_size_t p = 0;
+    for (size_t i = 0; r->profile->presets[i] != MODEM_PRESET_END; i++) {
+        if (!r->supportsPreset(r->profile->presets[i], allowUnknownRadio))
+            continue;
+        if (p >= grp.presets_count || grp.presets[p] != r->profile->presets[i])
+            return false;
+        p++;
+    }
+
+    return p == grp.presets_count;
+}
+
 void getRegionPresetMap(meshtastic_LoRaRegionPresetMap &map)
 {
     map = meshtastic_LoRaRegionPresetMap_init_zero;
@@ -613,9 +682,13 @@ void getRegionPresetMap(meshtastic_LoRaRegionPresetMap &map)
     const size_t maxRegions = sizeof(map.region_groups) / sizeof(map.region_groups[0]);
     const size_t maxPresets = sizeof(map.groups[0].presets) / sizeof(map.groups[0].presets[0]);
 
+    // If radio probing has not finished, do not hide presets that may become valid.
+    const bool allowUnknownRadio = true;
+
     // Coalesce regions that share an identical preset list into one group. Two
     // regions belong to the same group when they share the same RegionProfile
-    // (which owns the preset list + licensing) AND the same default preset.
+    // (which owns the base preset list + licensing), the same default preset, and
+    // the same compatibility-filtered preset list.
     // Keyed by profile pointer, not the preset-array pointer: PROFILE_NARROW and
     // PROFILE_HAM_100KHZ share PRESETS_NARROW but differ in licensedOnly.
     const RegionProfile *groupProfile[sizeof(map.groups) / sizeof(map.groups[0])] = {};
@@ -632,7 +705,7 @@ void getRegionPresetMap(meshtastic_LoRaRegionPresetMap &map)
         // Find the group this region belongs to, or create it.
         int gi = -1;
         for (pb_size_t g = 0; g < map.groups_count; g++) {
-            if (groupProfile[g] == r->profile && map.groups[g].default_preset == r->getDefaultPreset()) {
+            if (groupProfile[g] == r->profile && presetGroupMatchesRegion(map.groups[g], r, allowUnknownRadio)) {
                 gi = g;
                 break;
             }
@@ -650,8 +723,10 @@ void getRegionPresetMap(meshtastic_LoRaRegionPresetMap &map)
             grp.default_preset = r->getDefaultPreset();
             grp.licensed_only = r->profile->licensedOnly;
             grp.presets_count = 0;
-            for (size_t i = 0; r->profile->presets[i] != MODEM_PRESET_END && grp.presets_count < maxPresets; i++)
-                grp.presets[grp.presets_count++] = r->profile->presets[i];
+            for (size_t i = 0; r->profile->presets[i] != MODEM_PRESET_END && grp.presets_count < maxPresets; i++) {
+                if (r->supportsPreset(r->profile->presets[i], allowUnknownRadio))
+                    grp.presets[grp.presets_count++] = r->profile->presets[i];
+            }
         }
 
         // Map this region to its group (capacity checked at the top of the loop).

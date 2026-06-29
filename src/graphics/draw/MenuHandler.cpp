@@ -474,13 +474,16 @@ static BannerOverlayOptions buildRegionPresetBanner()
 
     if (myRegion && myRegion->profile) {
         const meshtastic_Config_LoRaConfig_ModemPreset *presets = myRegion->getAvailablePresets();
-        size_t numPresets = myRegion->getNumPresets();
-        for (size_t i = 0; i < numPresets && count < MAX_PRESET_OPTIONS; ++i) {
-            const char *name = DisplayFormatters::getModemPresetDisplayName(presets[i], false, true);
+        for (size_t i = 0; presets[i] != MODEM_PRESET_END && count < MAX_PRESET_OPTIONS; ++i) {
+            const auto preset = presets[i];
+            if (!myRegion->supportsPreset(preset))
+                continue;
+
+            const char *name = DisplayFormatters::getModemPresetDisplayName(preset, false, true);
             strncpy(presetLabelBuf[count], name, sizeof(presetLabelBuf[count]) - 1);
             presetLabelBuf[count][sizeof(presetLabelBuf[count]) - 1] = '\0';
             optionsArray[count] = presetLabelBuf[count];
-            optionsEnumArray[count++] = static_cast<int>(presets[i]);
+            optionsEnumArray[count++] = static_cast<int>(preset);
         }
     }
 
