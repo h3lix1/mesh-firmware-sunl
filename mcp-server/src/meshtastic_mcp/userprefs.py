@@ -380,6 +380,7 @@ KNOWN_MODEM_PRESETS = {
     "SHORT_SLOW": "meshtastic_Config_LoRaConfig_ModemPreset_SHORT_SLOW",
     "SHORT_FAST": "meshtastic_Config_LoRaConfig_ModemPreset_SHORT_FAST",
     "SHORT_TURBO": "meshtastic_Config_LoRaConfig_ModemPreset_SHORT_TURBO",
+    "SHORT_ULTRA": "meshtastic_Config_LoRaConfig_ModemPreset_SHORT_ULTRA",
 }
 
 
