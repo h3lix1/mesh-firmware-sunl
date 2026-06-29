@@ -657,14 +657,14 @@ const RegionInfo *getRegion(meshtastic_Config_LoRaConfig_RegionCode code)
     return r;
 }
 
-static bool presetGroupMatchesRegion(const meshtastic_LoRaPresetGroup &grp, const RegionInfo *r)
+static bool presetGroupMatchesRegion(const meshtastic_LoRaPresetGroup &grp, const RegionInfo *r, bool allowUnknownRadio)
 {
     if (grp.default_preset != r->getDefaultPreset() || grp.licensed_only != r->profile->licensedOnly)
         return false;
 
     pb_size_t p = 0;
     for (size_t i = 0; r->profile->presets[i] != MODEM_PRESET_END; i++) {
-        if (!r->supportsPreset(r->profile->presets[i]))
+        if (!r->supportsPreset(r->profile->presets[i], allowUnknownRadio))
             continue;
         if (p >= grp.presets_count || grp.presets[p] != r->profile->presets[i])
             return false;
@@ -681,6 +681,9 @@ void getRegionPresetMap(meshtastic_LoRaRegionPresetMap &map)
     const size_t maxGroups = sizeof(map.groups) / sizeof(map.groups[0]);
     const size_t maxRegions = sizeof(map.region_groups) / sizeof(map.region_groups[0]);
     const size_t maxPresets = sizeof(map.groups[0].presets) / sizeof(map.groups[0].presets[0]);
+
+    // If radio probing has not finished, do not hide presets that may become valid.
+    const bool allowUnknownRadio = true;
 
     // Coalesce regions that share an identical preset list into one group. Two
     // regions belong to the same group when they share the same RegionProfile
@@ -702,7 +705,7 @@ void getRegionPresetMap(meshtastic_LoRaRegionPresetMap &map)
         // Find the group this region belongs to, or create it.
         int gi = -1;
         for (pb_size_t g = 0; g < map.groups_count; g++) {
-            if (groupProfile[g] == r->profile && presetGroupMatchesRegion(map.groups[g], r)) {
+            if (groupProfile[g] == r->profile && presetGroupMatchesRegion(map.groups[g], r, allowUnknownRadio)) {
                 gi = g;
                 break;
             }
@@ -721,7 +724,7 @@ void getRegionPresetMap(meshtastic_LoRaRegionPresetMap &map)
             grp.licensed_only = r->profile->licensedOnly;
             grp.presets_count = 0;
             for (size_t i = 0; r->profile->presets[i] != MODEM_PRESET_END && grp.presets_count < maxPresets; i++) {
-                if (r->supportsPreset(r->profile->presets[i]))
+                if (r->supportsPreset(r->profile->presets[i], allowUnknownRadio))
                     grp.presets[grp.presets_count++] = r->profile->presets[i];
             }
         }

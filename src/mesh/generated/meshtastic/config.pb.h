@@ -378,7 +378,7 @@ typedef enum _meshtastic_Config_LoRaConfig_ModemPreset {
     /* Short Range - Ultra
  Fastest preset with 500kHz bandwidth, SF5, and CR 4/5.
  Intended data rate is about 62.5 kbps.
- Only compatible with SX126x and LR11xx chipsets. */
+ Only compatible with SX126x-family chipsets, including STM32WLx, and LR11xx chipsets. */
     meshtastic_Config_LoRaConfig_ModemPreset_SHORT_ULTRA = 16
 } meshtastic_Config_LoRaConfig_ModemPreset;
 
