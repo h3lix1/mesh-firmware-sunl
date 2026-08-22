@@ -96,6 +96,8 @@
 #define HW_VENDOR meshtastic_HardwareModel_T_DECK
 #elif defined(T_WATCH_S3)
 #define HW_VENDOR meshtastic_HardwareModel_T_WATCH_S3
+#elif defined(T_WATCH_ULTRA)
+#define HW_VENDOR meshtastic_HardwareModel_T_WATCH_ULTRA
 #elif defined(GENIEBLOCKS)
 #define HW_VENDOR meshtastic_HardwareModel_GENIEBLOCKS
 #elif defined(NANO_G1)

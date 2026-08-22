@@ -681,7 +681,7 @@ void Screen::handleSetOn(bool on, FrameCallback einkScreensaver)
         if (on) {
             LOG_INFO("Turn on screen");
             powerMon->setState(meshtastic_PowerMon_State_Screen_On);
-#ifdef T_WATCH_S3
+#if defined(T_WATCH_S3) || defined(T_WATCH_ULTRA)
             PMU->enablePowerOutput(XPOWERS_ALDO2);
 #endif
 

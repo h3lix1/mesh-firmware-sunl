@@ -647,6 +647,14 @@ void setup()
     mcp23017EarlyInit();
 #endif
 
+#ifdef T_WATCH_ULTRA
+    // The Ultra's display power, touch reset, haptic enable and LoRa RF switch
+    // all hang off an XL9555 expander on the main I2C bus - bring it up now that
+    // the PMU rails are on, before the I2C scan, radio and display init
+    extern void tWatchUltraExpanderInit();
+    tWatchUltraExpanderInit();
+#endif
+
 #ifdef SENSECAP_INDICATOR
     // Power the RP2040 co-processor and start the interdevice link before the
     // I2C scan, so that its bus can be probed through the bridge

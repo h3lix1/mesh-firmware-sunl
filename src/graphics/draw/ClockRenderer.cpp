@@ -453,7 +453,7 @@ void drawAnalogClockFrame(OLEDDisplay *display, OLEDDisplayUiState *state, int16
                 double hourStringX = (sineAngleInRadians * (hourStringNoonY - centerY) + noonX) - hourStringXOffset;
                 double hourStringY = (cosineAngleInRadians * (hourStringNoonY - centerY) + centerY) - hourStringYOffset;
 
-#ifdef T_WATCH_S3
+#if defined(T_WATCH_S3) || defined(T_WATCH_ULTRA)
                 // draw hour number
                 display->drawStringf(hourStringX, hourStringY, buffer, "%d", hourInt);
 #else

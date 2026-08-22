@@ -1284,6 +1284,9 @@ void GPS::setPowerPMU(bool on)
         } else if (HW_VENDOR == meshtastic_HardwareModel_T_WATCH_S3) {
             // t-watch-s3-plus GNSS power channel
             on ? PMU->enablePowerOutput(XPOWERS_BLDO1) : PMU->disablePowerOutput(XPOWERS_BLDO1);
+        } else if (HW_VENDOR == meshtastic_HardwareModel_T_WATCH_ULTRA) {
+            // t-watch-ultra GNSS power channel
+            on ? PMU->enablePowerOutput(XPOWERS_BLDO1) : PMU->disablePowerOutput(XPOWERS_BLDO1);
         }
     } else if (model == XPOWERS_AXP192) {
         // t-beam v1.1 GNSS  power channel

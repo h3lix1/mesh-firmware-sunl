@@ -1446,6 +1446,41 @@ bool Power::axpChipInit()
             PMU->disablePowerOutput(XPOWERS_DLDO1); // Invalid power channel, it does not exist
             PMU->disablePowerOutput(XPOWERS_DLDO2); // Invalid power channel, it does not exist
             PMU->disablePowerOutput(XPOWERS_VBACKUP);
+        } else if (HW_VENDOR == meshtastic_HardwareModel_T_WATCH_ULTRA) {
+            // T-Watch Ultra rail map (per LilyGoLib LilyGoWatchUltra.cpp):
+            //   ALDO1 -> SD card, ALDO2 -> display, ALDO3 -> radio,
+            //   ALDO4 -> BHI260AP sensor (1V8), BLDO1 -> GNSS, BLDO2 -> speaker amp
+            PMU->setPowerChannelVoltage(XPOWERS_ALDO1, 3300);
+            PMU->enablePowerOutput(XPOWERS_ALDO1);
+
+            // ALDO2 feeds the AMOLED; keep it on - power gating the panel raises
+            // sleep current, the panel handles low power via its sleep command
+            PMU->setPowerChannelVoltage(XPOWERS_ALDO2, 3300);
+            PMU->enablePowerOutput(XPOWERS_ALDO2);
+
+            PMU->setPowerChannelVoltage(XPOWERS_ALDO3, 3300);
+            PMU->enablePowerOutput(XPOWERS_ALDO3);
+
+            PMU->setPowerChannelVoltage(XPOWERS_ALDO4, 1800);
+            PMU->enablePowerOutput(XPOWERS_ALDO4);
+
+            PMU->setPowerChannelVoltage(XPOWERS_BLDO1, 3300);
+            PMU->enablePowerOutput(XPOWERS_BLDO1);
+
+            PMU->setPowerChannelVoltage(XPOWERS_BLDO2, 3300);
+            PMU->enablePowerOutput(XPOWERS_BLDO2);
+
+            // Button-cell backed RTC backup domain
+            PMU->setPowerChannelVoltage(XPOWERS_VBACKUP, 3300);
+            PMU->enablePowerOutput(XPOWERS_VBACKUP);
+
+            // unused channels (DLDO1 only feeds the NFC reader, unused here)
+            PMU->disablePowerOutput(XPOWERS_DCDC2);
+            PMU->disablePowerOutput(XPOWERS_DCDC3);
+            PMU->disablePowerOutput(XPOWERS_DCDC4);
+            PMU->disablePowerOutput(XPOWERS_DCDC5);
+            PMU->disablePowerOutput(XPOWERS_DLDO1);
+            PMU->disablePowerOutput(XPOWERS_CPULDO);
         } else if (HW_VENDOR == meshtastic_HardwareModel_TBEAM_BPF) {
             // T-Beam BPF rail map (per schematic LilyGo_TBeam_BPF r2025-05-08):
             //   DCDC1  -> ESP32 + OLED 3V3 (always on, protected)

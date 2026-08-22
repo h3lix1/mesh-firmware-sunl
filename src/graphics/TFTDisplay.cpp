@@ -625,6 +625,79 @@ class LGFX : public lgfx::LGFX_Device
 
 static LGFX *tft = nullptr;
 
+#elif defined(CO5300_QSPI_AMOLED)
+#include <LovyanGFX.hpp> // Graphics and font library: CO5300 AMOLED over QSPI (T-Watch Ultra)
+
+// Touch (CST9217) is owned by variants/esp32s3/t-watch-ultra/variant.cpp - it must
+// come up before the input threads are created during setupModules, which is
+// earlier than this display connects.
+#if defined(HAS_TOUCHSCREEN) && defined(T_WATCH_ULTRA)
+extern bool tWatchUltraHasTouch();
+extern bool tWatchUltraGetTouch(int16_t *x, int16_t *y);
+#endif
+
+class LGFX : public lgfx::LGFX_Device
+{
+    lgfx::Panel_CO5300 _panel_instance;
+    lgfx::Bus_SPI _bus_instance;
+
+  public:
+    LGFX(void)
+    {
+        {
+            auto cfg = _bus_instance.config();
+
+            // QSPI: all four pin_io* set puts Bus_SPI into quad mode; commands
+            // travel in-band so there is no DC line
+            cfg.spi_host = CO5300_SPI_HOST;
+            cfg.freq_write = CO5300_SPI_FREQUENCY;
+            cfg.freq_read = 16000000;
+            cfg.spi_mode = 0;
+            cfg.pin_sclk = CO5300_SCK;
+            cfg.pin_mosi = -1;
+            cfg.pin_miso = -1;
+            cfg.pin_dc = -1;
+            cfg.pin_io0 = CO5300_D0;
+            cfg.pin_io1 = CO5300_D1;
+            cfg.pin_io2 = CO5300_D2;
+            cfg.pin_io3 = CO5300_D3;
+            cfg.use_lock = true;
+            cfg.dma_channel = SPI_DMA_CH_AUTO;
+
+            _bus_instance.config(cfg);
+            _panel_instance.setBus(&_bus_instance);
+        }
+
+        {                                        // Set the display panel control.
+            auto cfg = _panel_instance.config(); // Gets a structure for display panel settings.
+
+            cfg.pin_cs = CO5300_CS;     // Pin number where CS is connected (-1 = disable)
+            cfg.pin_rst = CO5300_RST;   // Pin number where RST is connected  (-1 = disable)
+            cfg.pin_busy = -1;          // Pin number where BUSY is connected (-1 = disable)
+
+            // Panel_CO5300 defaults describe the controller's native landscape
+            // scan (502x410); the watch face is portrait 410x502 with MADCTL 0,
+            // which reproduces LilyGoLib's portrait wiring (CASET window offset 22,
+            // RASET offset 0 - the gap left by the curved-bezel glass).
+            // Full panel stays addressable so the bezel border can be cleared;
+            // the bevel-safe canvas (variant.h) is placed via push offsets
+            cfg.panel_width = TFT_WIDTH;
+            cfg.panel_height = TFT_HEIGHT;
+            cfg.memory_width = TFT_WIDTH;
+            cfg.memory_height = TFT_HEIGHT;
+            cfg.offset_x = TFT_OFFSET_X;
+            cfg.offset_y = TFT_OFFSET_Y;
+            cfg.offset_rotation = 0;
+
+            _panel_instance.config(cfg);
+        }
+
+        setPanel(&_panel_instance); // Sets the panel to use.
+    }
+};
+
+static LGFX *tft = nullptr;
+
 #elif defined(ST7796_CS)
 #include <LovyanGFX.hpp> // Graphics and font library for ST7796 driver chip
 
@@ -1216,6 +1289,9 @@ TFTDisplay::TFTDisplay(uint8_t address, int sda, int scl, OLEDDISPLAY_GEOMETRY g
 
 #elif defined(SCREEN_ROTATE)
     setGeometry(GEOMETRY_RAWMODE, TFT_HEIGHT, TFT_WIDTH);
+#elif defined(TFT_BEVEL_INSET_X)
+    // Keep the UI canvas inside the glass-covered perimeter (see variant.h)
+    setGeometry(GEOMETRY_RAWMODE, TFT_WIDTH - 2 * TFT_BEVEL_INSET_X, TFT_HEIGHT - 2 * TFT_BEVEL_INSET_Y);
 #else
     setGeometry(GEOMETRY_RAWMODE, TFT_WIDTH, TFT_HEIGHT);
 #endif
@@ -1234,6 +1310,7 @@ TFTDisplay::~TFTDisplay()
     }
     memaudit::set("display", 0);
 }
+
 
 // Write the buffer to the display memory
 void TFTDisplay::display(bool fromBlank)
@@ -1257,10 +1334,17 @@ void TFTDisplay::display(bool fromBlank)
     static bool haveLastDefaults = false;
     const bool themeDefaultsChanged =
         !haveLastDefaults || (defaultOnColor != lastDefaultOnColor) || (defaultOffColor != lastDefaultOffColor);
+#if defined(T_WATCH_ULTRA)
+    // The CO5300 mislays short partial-row windows (stale menus on swipe); a
+    // full chunked repaint costs ~40 ms on the 80 MHz QSPI bus, so always repaint
+    const bool forceFullRepaint = true;
+#else
     const bool forceFullRepaint = fromBlank || themeDefaultsChanged;
+#endif
 
     // If theme defaults changed, reset panel background immediately so stale pixels don't linger.
-    if (forceFullRepaint) {
+    // (Not on routine full repaints - blanking first makes every frame flash.)
+    if (fromBlank || themeDefaultsChanged) {
         tft->fillScreen(defaultOffColor);
     }
 
@@ -1310,11 +1394,16 @@ void TFTDisplay::display(bool fromBlank)
                         }
                     }
                 }
+
             }
 #if defined(HACKADAY_COMMUNICATOR)
             tft->draw16bitBeRGBBitmap(0, yStart, repaintChunkBuffer, displayWidth, rowsThisChunk);
 #else
+#ifdef TFT_BEVEL_INSET_X
+            tft->pushImage(TFT_BEVEL_INSET_X, yStart + TFT_BEVEL_INSET_Y, displayWidth, rowsThisChunk, repaintChunkBuffer);
+#else
             tft->pushImage(0, yStart, displayWidth, rowsThisChunk, repaintChunkBuffer);
+#endif
 #endif
         }
 
@@ -1417,8 +1506,13 @@ void TFTDisplay::display(bool fromBlank)
 #else
             // Step 4: Send the changed pixels on this line to the screen as a single block transfer.
             // This function accepts pixel data MSB first so it can dump the memory straight out the SPI port.
+#ifdef TFT_BEVEL_INSET_X
+            tft->pushImage(x_FirstPixelUpdate + TFT_BEVEL_INSET_X, y + TFT_BEVEL_INSET_Y,
+                           (x_LastPixelUpdate - x_FirstPixelUpdate + 1), 1, &linePixelBuffer[x_FirstPixelUpdate]);
+#else
             tft->pushImage(x_FirstPixelUpdate, y, (x_LastPixelUpdate - x_FirstPixelUpdate + 1), 1,
                            &linePixelBuffer[x_FirstPixelUpdate]);
+#endif
 #endif
             somethingChanged = true;
         }
@@ -1493,6 +1587,13 @@ void TFTDisplay::sendCommand(uint8_t com)
             digitalWrite(portduino_config.displayBacklight.pin, TFT_BACKLIGHT_ON);
 #elif defined(HACKADAY_COMMUNICATOR)
         tft->displayOn();
+#elif defined(T_WATCH_ULTRA)
+        // The CO5300 ignores commands for ~120 ms after sleep-out; brightness
+        // and frame data sent earlier never land and the panel stays black
+        tft->wakeup();
+        delay(120);
+        tft->powerSaveOff();
+        tft->setBrightness(172);
 #elif !defined(RAK14014) && !defined(M5STACK) && !defined(UNPHONE) && !defined(HELTEC_MESH_NODE_T096) &&                         \
     !defined(HELTEC_MESH_NODE_T1)
         tft->wakeup();
@@ -1521,6 +1622,10 @@ void TFTDisplay::sendCommand(uint8_t com)
             digitalWrite(portduino_config.displayBacklight.pin, !TFT_BACKLIGHT_ON);
 #elif defined(HACKADAY_COMMUNICATOR)
         tft->displayOff();
+#elif defined(T_WATCH_ULTRA)
+        // Blank first - the AMOLED rejects further commands once asleep
+        tft->setBrightness(0);
+        tft->sleep();
 #elif !defined(RAK14014) && !defined(M5STACK) && !defined(UNPHONE) && !defined(HELTEC_MESH_NODE_T096) &&                         \
     !defined(HELTEC_MESH_NODE_T1)
         tft->sleep();
@@ -1561,6 +1666,9 @@ void TFTDisplay::flipScreenVertically()
 #if defined(T_WATCH_S3)
     LOG_DEBUG("Flip TFT vertically"); // T-Watch S3 right-handed orientation
     tft->setRotation(0);
+#elif defined(T_WATCH_ULTRA)
+    LOG_DEBUG("Flip TFT vertically");
+    tft->setRotation(0);
 #endif
 }
 
@@ -1568,6 +1676,8 @@ bool TFTDisplay::hasTouch(void)
 {
 #ifdef RAK14014
     return true;
+#elif defined(T_WATCH_ULTRA)
+    return tWatchUltraHasTouch();
 #elif !defined(M5STACK) && !defined(HACKADAY_COMMUNICATOR) && !defined(HELTEC_MESH_NODE_T096) && !defined(HELTEC_MESH_NODE_T1)
     return tft->touch() != nullptr;
 #else
@@ -1587,6 +1697,8 @@ bool TFTDisplay::getTouch(int16_t *x, int16_t *y)
     } else {
         return false;
     }
+#elif defined(T_WATCH_ULTRA)
+    return tWatchUltraGetTouch(x, y);
 #elif !defined(M5STACK) && !defined(HACKADAY_COMMUNICATOR) && !defined(HELTEC_MESH_NODE_T096) && !defined(HELTEC_MESH_NODE_T1)
     return tft->getTouch(x, y);
 #else
@@ -1649,6 +1761,13 @@ bool TFTDisplay::connect()
     tft->setRotation(1); // T-Deck has the TFT in landscape
 #elif defined(T_WATCH_S3)
     tft->setRotation(2); // T-Watch S3 left-handed orientation
+#elif defined(T_WATCH_ULTRA)
+    tft->setRotation(2); // Screen::setup normalizes to 0 via flipScreenVertically() when flip is off
+#ifdef TFT_BEVEL_INSET_X
+    // The bezel-covered border is outside the UI canvas; wipe stale GRAM there
+    // (older full-width frames linger as green garbage around the safe area)
+    tft->fillScreen(TFT_BLACK);
+#endif
 #elif ARCH_PORTDUINO || defined(SENSECAP_INDICATOR) || defined(T_LORA_PAGER)
     tft->setRotation(0); // use config.yaml to set rotation
 #else

@@ -1117,7 +1117,7 @@ void NodeDB::installDefaultConfig(bool preserveKey = false)
     config.display.wake_on_tap_or_motion = true;
 #endif
 
-#if defined(T_WATCH_S3) || defined(SENSECAP_INDICATOR)
+#if defined(T_WATCH_S3) || defined(T_WATCH_ULTRA) || defined(SENSECAP_INDICATOR)
     config.display.screen_on_secs = 30;
     config.display.wake_on_tap_or_motion = true;
 #endif
