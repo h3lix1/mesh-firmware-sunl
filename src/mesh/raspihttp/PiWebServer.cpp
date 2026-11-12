@@ -259,21 +259,28 @@ int handleAPIv1ToRadio(const struct _u_request *req, struct _u_response *res, vo
         return U_CALLBACK_COMPLETE;
     }
 
+    const size_t bodyLength = req->binary_body_length;
+    if (bodyLength > MAX_TO_FROM_RADIO_SIZE) {
+        LOG_WARN("ToRadio body too large: %zu > %d", bodyLength, MAX_TO_FROM_RADIO_SIZE);
+        ulfius_set_response_properties(res, U_OPT_STATUS, 413);
+        return U_CALLBACK_COMPLETE;
+    }
+
+    if (bodyLength == 0 || req->binary_body == nullptr) {
+        LOG_WARN("Invalid ToRadio body: %zu bytes", bodyLength);
+        ulfius_set_response_properties(res, U_OPT_STATUS, 400);
+        return U_CALLBACK_COMPLETE;
+    }
+
     byte buffer[MAX_TO_FROM_RADIO_SIZE];
-    // ulfius allocates binary_body at exactly binary_body_length bytes (NULL for a body-less
-    // PUT), and the framework accepts bodies larger than our buffer, so clamp both directions.
-    size_t s = req->binary_body ? req->binary_body_length : 0;
-    if (s > sizeof(buffer))
-        s = sizeof(buffer);
-    if (s > 0)
-        memcpy(buffer, req->binary_body, s);
+    memcpy(buffer, req->binary_body, bodyLength);
 
     // FIXME* Problem with portdunio loosing mountpoint maybe because of running in a real sep. thread
 
     portduinoVFS->mountpoint(configWeb.rootPath);
 
-    LOG_DEBUG("Received %d bytes from PUT request", s);
-    static_cast<HttpAPI *>(user_data)->handleToRadio(buffer, s);
+    LOG_DEBUG("Received %zu bytes from PUT request", bodyLength);
+    static_cast<HttpAPI *>(user_data)->handleToRadio(buffer, bodyLength);
     LOG_DEBUG("end web->radio  ");
     return U_CALLBACK_COMPLETE;
 }
